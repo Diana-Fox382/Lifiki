@@ -17,9 +17,8 @@
   <!-- Панель статистики (glassmorphism) -->
   <aside class="panel glass">
     <header class="panel-header">
-      <div class="logo" aria-hidden="true">
-        <span class="logo-eye"></span><span class="logo-eye"></span>
-      </div>
+      <!-- Живой логотип: настоящая маленькая чернушка (logo.js) -->
+      <canvas class="logo" id="logo" aria-hidden="true" title="Погладь меня"></canvas>
       <div>
         <h1>Lifiki</h1>
         <p class="subtitle">нейроэволюция пушистиков</p>
@@ -36,7 +35,7 @@
         <span class="stat-value"><span id="stat-generation">0</span> <small>/ <span id="stat-generation-max">0</span></small></span>
       </div>
       <div class="stat">
-        <span class="stat-label">👑 Возраст рекордсмена</span>
+        <span class="stat-label">⭐ Возраст рекордсмена</span>
         <span class="stat-value" id="stat-record">0 с</span>
       </div>
       <div class="stat stat-sub">
@@ -95,6 +94,8 @@
     <button class="btn btn-wide" id="btn-call" title="Запустить сеанс связи прямо сейчас (для проверки)">💬 Позвать на связь</button>
   </aside>
 
+  <!-- Правая колонка: сезон + словарь -->
+  <div class="right-column">
   <!-- Сезон и температура -->
   <aside class="season glass" id="season">
     <div class="season-top">
@@ -113,8 +114,17 @@
     <div class="season-fur">🧶 Средняя шуба: <b id="season-fur">–</b></div>
   </aside>
 
+  <!-- Словарь: какие «слова» придумали существа и что они, похоже, значат -->
+  <aside class="lexicon glass" id="lexicon">
+    <div class="lexicon-head">🗣 Язык существ</div>
+    <div class="lexicon-rows" id="lexicon-rows"></div>
+    <div class="lexicon-foot" id="lexicon-silence">Молчат: –</div>
+    <p class="lexicon-hint">Значение слова — ситуация, в которой его произносят заметно чаще обычного. Его никто не задавал: только эволюция.</p>
+  </aside>
+  </div>
+
   <!-- Подсказка внизу экрана -->
-  <div class="hint glass">🖐 Зажми мышку на пушистике — погладь его · <kbd>Пробел</kbd> — пауза</div>
+  <div class="hint glass">🖐 Схвати пушистика и тащи: на руках он мурчит · дотащи до еды — покормишь, до яда — погибнет · <kbd>Пробел</kbd> — пауза</div>
 
   <!-- Баннер «Сеанса связи» -->
   <div class="banner glass" id="banner"></div>
@@ -136,12 +146,14 @@
   <script src="particles.js"></script>
   <script src="dna.js"></script>
   <script src="seasons.js"></script>
+  <script src="language.js"></script>
   <script src="breathing.js"></script>
   <script src="fur.js"></script>
   <script src="assets.js"></script>
   <script src="creature.js"></script>
   <script src="world.js"></script>
   <script src="hivemind.js"></script>
+  <script src="logo.js"></script>
   <script src="ui.js"></script>
   <script src="main.js"></script>
 </body>

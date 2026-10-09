@@ -72,31 +72,13 @@ body {
   margin-bottom: 14px;
 }
 
-/* Маленький логотип-чернушка */
+/* Живой логотип-чернушка (рисуется в canvas, см. logo.js) */
 .logo {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #3b3b4a, #050508 70%);
-  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.6), 0 0 18px rgba(190, 210, 255, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+  width: 46px;
+  height: 46px;
   flex-shrink: 0;
-}
-
-.logo-eye {
-  width: 10px;
-  height: 12px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 55% 55%, #000 0 30%, #fff 32%);
-  animation: blink 5s infinite;
-}
-
-@keyframes blink {
-  0%, 94%, 100% { transform: scaleY(1); }
-  97% { transform: scaleY(0.1); }
+  cursor: grab;
+  filter: drop-shadow(0 0 8px rgba(190, 210, 255, 0.35));
 }
 
 h1 {
@@ -335,13 +317,21 @@ h1 {
 }
 
 /* ---------- Сезон ---------- */
-.season {
+.right-column {
   position: fixed;
   top: 16px;
   right: 16px;
   width: 230px;
-  padding: 14px 16px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   z-index: 10;
+}
+
+.season {
+  padding: 14px 16px;
   transition: background 2s, border-color 2s;
 }
 
@@ -413,6 +403,74 @@ h1 {
 
 .season-effect { color: var(--text); font-weight: 600; }
 .season-fur b { color: var(--text); }
+
+/* ---------- Словарь (язык существ) ---------- */
+.lexicon {
+  padding: 12px 16px;
+  font-size: 12px;
+}
+
+.lexicon-head {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.lex-row {
+  display: grid;
+  grid-template-columns: 18px 1fr 34px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.lex-glyph {
+  font-size: 15px;
+  text-align: center;
+  line-height: 1;
+}
+
+.lex-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.lex-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.lex-share {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.lex-meaning {
+  grid-column: 2 / 4;
+  margin-top: -2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.lex-meaning b { color: var(--text); }
+
+.lexicon-foot {
+  margin-top: 8px;
+  color: var(--text-dim);
+}
+
+.lexicon-hint {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
 
 /* ---------- Подсказка ---------- */
 .hint {
@@ -507,15 +565,20 @@ kbd {
     width: auto;
     padding: 12px;
   }
-  .season {
+  .right-column {
     top: auto;
     bottom: 56px;
     right: 8px;
     width: 170px;
+  }
+  .season {
     padding: 10px 12px;
   }
   .season-next,
   .season-fur {
+    display: none;
+  }
+  .lexicon {
     display: none;
   }
   .awareness-hint,

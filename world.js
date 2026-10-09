@@ -28,6 +28,11 @@ class World {
   get megapixels() { return (this.width * this.height) / 1e6; }
   get maxFood() { return Math.round(CONFIG.world.foodPerMegapixel * this.megapixels); }
   get maxPoison() { return Math.round(CONFIG.world.poisonPerMegapixel * this.megapixels); }
+  /** Предел популяции: зависит от размера экрана (Full HD → 50). */
+  get maxPopulation() {
+    const p = CONFIG.population;
+    return clamp(Math.round(p.maxPerMegapixel * this.megapixels), p.maxFloor, p.maxCap);
+  }
 
   /** Окно изменило размер — переносим всё внутрь новых границ. */
   resize(width, height) {
@@ -154,6 +159,18 @@ class World {
       seen: seenI < 0 ? null : { item: list[seenI], index: seenI, dx: sdx, dy: sdy, dist: seenDist },
       touch: touchI < 0 ? null : { item: list[touchI], index: touchI, dx: tdx, dy: tdy, dist: Math.sqrt(touchD2) },
     };
+  }
+
+  /** Ближайшее ДРУГОЕ существо в радиусе maxDist (тот, кого «слышно»). */
+  nearestNeighbor(self, maxDist) {
+    let best = null, bestD2 = maxDist * maxDist;
+    for (const c of this.creatures) {
+      if (c === self || c.dead) continue;
+      const d = this.delta(self.x, self.y, c.x, c.y);
+      const d2 = d.x * d.x + d.y * d.y;
+      if (d2 < bestD2) { bestD2 = d2; best = c; }
+    }
+    return best;
   }
 
   /** Быстрое удаление: на место удаляемого ставим последний элемент. */

@@ -317,24 +317,108 @@ class AssetManager {
     }
   }
 
-  /** Маленькая золотая корона над рекордсменом (самым старым живым существом). */
-  drawCrown(ctx, x, y, time) {
+  /**
+   * Пиксельная звёздочка над рекордсменом (самым старым живым существом).
+   * Нарисована по клеточкам, как в пиксель-арте:
+   *   o — тёмно-золотой контур, y — жёлтый, l — светлый блик.
+   * Рисуем её в крошечный canvas 11×11 один раз, а потом увеличиваем
+   * БЕЗ сглаживания (imageSmoothingEnabled = false) — пиксели остаются чёткими.
+   */
+  static buildStarSprite() {
+    const rows = [
+      '.....o.....',
+      '....oyo....',
+      '....oyo....',
+      'ooooyyyoooo',
+      'oyyyylyyyyo',
+      '.oyyllyyyo.',
+      '..oyyyyyo..',
+      '..oyyyyyo..',
+      '.oyyyoyyyo.',
+      '.oyyo.oyyo.',
+      '.ooo...ooo.',
+    ];
+    const colors = { o: '#a87a00', y: '#ffd93b', l: '#fff6b0' };
+    const c = AssetManager.makeCanvas(11, 11);
+    const g = c.getContext('2d');
+    rows.forEach((row, y) => {
+      [...row].forEach((ch, x) => {
+        if (!colors[ch]) return;
+        g.fillStyle = colors[ch];
+        g.fillRect(x, y, 1, 1);
+      });
+    });
+    return c;
+  }
+
+  /** Звёздочка плавно подпрыгивает (bounce) и чуть покачивается. */
+  drawStar(ctx, x, y, time) {
+    if (!this.sprites.star) this.sprites.star = AssetManager.buildStarSprite();
+    const phase = time * 2.6;
+    const bounce = Math.abs(Math.sin(phase)) * 5;          // «прыг-прыг»
+    const squash = 1 + Math.max(0, 0.12 - Math.abs(Math.sin(phase)) * 0.4); // сплющилась у «земли»
+    const tilt = Math.sin(phase * 0.5) * 0.12;
+    const size = 22;                                        // 11 пикселей × 2
+
     ctx.save();
-    ctx.translate(x, y + Math.sin(time * 3) * 1.5);
+    ctx.translate(x, y - bounce);
+    // Мягкое золотое свечение за звездой
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(this.sprites.halo, -size, -size, size * 2, size * 2);
+    ctx.globalAlpha = 1;
+    ctx.rotate(tilt);
+    ctx.scale(squash, 2 - squash);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.sprites.star, -size / 2, -size / 2, size, size);
+    ctx.restore();
+  }
+
+  /**
+   * Облачко речи со «словом» (см. language.js).
+   * @param {object} word  — {color, id}
+   * @param {number} alpha — насколько громко (0..1)
+   */
+  drawSpeechBubble(ctx, x, y, word, alpha) {
+    const w = 22, h = 18, r = 6;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x, y);
+    // Облачко с хвостиком вниз-влево (к говорящему)
     ctx.beginPath();
-    ctx.moveTo(-7, 4);
-    ctx.lineTo(-7, -3);
-    ctx.lineTo(-3.5, 1);
-    ctx.lineTo(0, -5);
-    ctx.lineTo(3.5, 1);
-    ctx.lineTo(7, -3);
-    ctx.lineTo(7, 4);
+    ctx.moveTo(-w / 2 + r, -h / 2);
+    ctx.arcTo(w / 2, -h / 2, w / 2, h / 2, r);
+    ctx.arcTo(w / 2, h / 2, -w / 2, h / 2, r);
+    ctx.lineTo(-w / 2 + 8, h / 2);
+    ctx.lineTo(-w / 2 - 2, h / 2 + 6);
+    ctx.lineTo(-w / 2 + 3, h / 2);
+    ctx.arcTo(-w / 2, h / 2, -w / 2, -h / 2, r);
+    ctx.arcTo(-w / 2, -h / 2, w / 2, -h / 2, r);
     ctx.closePath();
-    ctx.fillStyle = '#ffd166';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.fill();
-    ctx.strokeStyle = '#b07d10';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+
+    // Символ слова
+    ctx.fillStyle = word.color;
+    ctx.strokeStyle = word.color;
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    switch (word.id) {
+      case 'triangle':
+        ctx.moveTo(0, -5.5); ctx.lineTo(6, 4.5); ctx.lineTo(-6, 4.5); ctx.closePath(); ctx.fill();
+        break;
+      case 'wave':
+        ctx.moveTo(-7, 0);
+        ctx.bezierCurveTo(-4.5, -6, -2, -6, 0, 0);
+        ctx.bezierCurveTo(2, 6, 4.5, 6, 7, 0);
+        ctx.stroke();
+        break;
+      case 'square':
+        ctx.rect(-4.5, -4.5, 9, 9); ctx.fill();
+        break;
+      default: // circle
+        ctx.arc(0, 0, 5, 0, TAU); ctx.fill();
+    }
     ctx.restore();
   }
 }

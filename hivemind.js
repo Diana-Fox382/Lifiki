@@ -114,7 +114,7 @@ class HiveMind {
 
     if (!this.active) {
       // Ждём, пока популяция «поумнеет», затем отсчитываем таймер
-      if (world.averageGeneration() > CONFIG.comm.minAvgGeneration) {
+      if (CONFIG.comm.enabled && world.averageGeneration() > CONFIG.comm.minAvgGeneration) {
         this.cooldown -= dt;
         if (this.cooldown <= 0) this.start(world, particles, ui);
       }

@@ -13,6 +13,8 @@ class Simulation {
     this.world = new World(window.innerWidth, window.innerHeight);
     this.particles = new ParticleSystem(CONFIG.simulation.maxParticles);
     this.hive = new HiveMind();
+    this.language = new LanguageStats(); // «словарь»: наблюдаем, что значат слова
+    this.logo = new LogoSoot(document.getElementById('logo'), assets);
 
     this.time = 0;            // «игровое» время в секундах (на паузе стоит)
     this.paused = false;
@@ -22,8 +24,10 @@ class Simulation {
     this.respawnTimer = 0;
 
     // Состояние указателя (мышь или палец)
-    this.pointer = { x: 0, y: 0, down: false, inside: false };
-    this.petTarget = null;    // кого сейчас гладим
+    this.pointer = { x: 0, y: 0, vx: 0, vy: 0, t: 0, down: false, inside: false };
+    this.dragged = null;      // кого держим «на ручках»
+    this.dragOffsetX = 0;     // за какое место схватили
+    this.dragOffsetY = 0;
     this.hovered = null;      // над кем курсор (показываем круг зрения)
   }
 
@@ -110,37 +114,55 @@ class Simulation {
     const c = this.canvas;
     const updatePos = (e) => {
       const rect = c.getBoundingClientRect();
-      this.pointer.x = e.clientX - rect.left;
-      this.pointer.y = e.clientY - rect.top;
+      const x = e.clientX - rect.left, y = e.clientY - rect.top;
+      // Скорость указателя (сглаженная) — чтобы существо можно было «бросить»
+      const t = performance.now();
+      const dtMs = Math.max(1, t - this.pointer.t);
+      this.pointer.vx = lerp(this.pointer.vx, ((x - this.pointer.x) / dtMs) * 1000, 0.35);
+      this.pointer.vy = lerp(this.pointer.vy, ((y - this.pointer.y) / dtMs) * 1000, 0.35);
+      this.pointer.x = x;
+      this.pointer.y = y;
+      this.pointer.t = t;
     };
 
+    // Нажали на существо — ВЗЯЛИ НА РУЧКИ (оно сразу начинает мурчать)
     c.addEventListener('pointerdown', (e) => {
       updatePos(e);
+      this.pointer.vx = this.pointer.vy = 0;
       this.pointer.down = true;
       c.setPointerCapture(e.pointerId);
       const target = this.pickCreature(this.pointer.x, this.pointer.y);
       if (target) {
-        this.petTarget = target;
+        this.dragged = target;
+        // Запоминаем, за какое место схватили, — чтобы существо не «прыгало» центром под курсор
+        this.dragOffsetX = target.x - this.pointer.x;
+        this.dragOffsetY = target.y - this.pointer.y;
         target.pet(CONFIG.petting.clickDuration); // даже короткий клик даёт помурчать
       }
     });
 
+    // Тащим — существо жёстко следует за курсором
     c.addEventListener('pointermove', (e) => {
       updatePos(e);
       this.pointer.inside = true;
-      // Если провести зажатой мышкой по другим существам — гладим и их
-      if (this.pointer.down) {
-        const target = this.pickCreature(this.pointer.x, this.pointer.y);
-        if (target && target !== this.petTarget) {
-          this.petTarget = target;
-          target.pet(CONFIG.petting.clickDuration);
-        }
-      }
+      if (this.dragged) this.dragTo(this.pointer.x + this.dragOffsetX, this.pointer.y + this.dragOffsetY);
     });
 
+    // Отпустили. Если резко дёрнули мышкой — существо можно «бросить».
     const release = () => {
+      const d = this.dragged;
+      if (d && !d.dead) {
+        const speed = Math.hypot(this.pointer.vx, this.pointer.vy);
+        if (speed > CONFIG.petting.throwMinSpeed) {
+          const s = Math.min(speed, d.maxSpeed * 1.5);
+          d.angle = Math.atan2(this.pointer.vy, this.pointer.vx);
+          d.vx = Math.cos(d.angle) * s;
+          d.vy = Math.sin(d.angle) * s;
+          d.pettingTimer = 0; // полетел — уже не мурчит
+        }
+      }
       this.pointer.down = false;
-      this.petTarget = null;
+      this.dragged = null;
     };
     c.addEventListener('pointerup', release);
     c.addEventListener('pointercancel', release);
@@ -157,6 +179,48 @@ class Simulation {
     });
   }
 
+  /**
+   * Перетащить существо в точку (x, y) с ПРОВЕРКОЙ СТОЛКНОВЕНИЙ ПО ВСЕМУ ПУТИ.
+   * Если за один кадр курсор пролетел 80 px, мы не «телепортируем» существо,
+   * а проходим путь маленькими шагами (по половине радиуса) и на каждом шаге
+   * проверяем, не коснулось ли оно еды (съест) или яда (съест и умрёт).
+   * Так существо не может «перепрыгнуть» через кусочек еды или яд.
+   */
+  dragTo(x, y) {
+    const c = this.dragged;
+    if (!c || c.dead) { this.dragged = null; return; }
+    const w = this.world;
+    x = clamp(x, 0, w.width - 0.01);
+    y = clamp(y, 0, w.height - 0.01);
+
+    const fromX = c.x, fromY = c.y;
+    const dx = x - fromX, dy = y - fromY;
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / Math.max(2, c.radius * 0.5)));
+    for (let i = 1; i <= steps; i++) {
+      c.x = fromX + (dx * i) / steps;
+      c.y = fromY + (dy * i) / steps;
+      if (c.checkContacts(w, this.particles)) {
+        // Яд! Существо погибло прямо в руках Создателя
+        this.dragged = null;
+        this.removeDead();
+        return;
+      }
+    }
+    c.vx = c.vy = 0;
+  }
+
+  /** Убрать погибших (с облачком сажи) — используется и в шаге симуляции, и при перетаскивании. */
+  removeDead() {
+    const list = this.world.creatures;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i];
+      if (!c.dead) continue;
+      this.world.recordDeath(c);
+      this.particles.emitSoot(c.x, c.y, c.radius);
+      list.splice(i, 1);
+    }
+  }
+
   /** Какое существо находится под курсором (или null). */
   pickCreature(x, y) {
     let best = null, bestD = Infinity;
@@ -171,16 +235,14 @@ class Simulation {
     return best;
   }
 
-  /** Пока кнопка зажата над существом — продлеваем ему поглаживание. */
-  applyPetting() {
-    const t = this.petTarget;
+  /** Пока существо «на ручках» — оно мурчит, а мы держим его под курсором. */
+  applyDrag() {
+    const t = this.dragged;
     if (!t) return;
-    if (t.dead) { this.petTarget = null; return; }
-    if (!this.pointer.down) return;
-    const d = this.world.delta(this.pointer.x, this.pointer.y, t.x, t.y);
-    if (Math.hypot(d.x, d.y) < t.radius + CONFIG.petting.pickPadding * 2) {
-      t.pet(CONFIG.petting.holdRefresh);
-    }
+    if (t.dead || !this.pointer.down) { this.dragged = null; return; }
+    t.pet(CONFIG.petting.holdRefresh);
+    // Держим под курсором (и проверяем, не выросла ли еда прямо под ним)
+    this.dragTo(this.pointer.x + this.dragOffsetX, this.pointer.y + this.dragOffsetY);
   }
 
   // ===========================================================================
@@ -191,7 +253,7 @@ class Simulation {
     const world = this.world;
 
     world.update(dt);
-    this.applyPetting();
+    this.applyDrag();
     this.hive.update(dt, world, this.particles, this.ui, this.time);
 
     for (const c of world.creatures) c.update(dt, world, this.particles);
@@ -200,17 +262,13 @@ class Simulation {
     const born = [];
     for (let i = world.creatures.length - 1; i >= 0; i--) {
       const c = world.creatures[i];
-      if (c.dead) {
-        world.recordDeath(c);
-        this.particles.emitSoot(c.x, c.y, c.radius);
-        world.creatures.splice(i, 1);
-        continue;
-      }
-      if (c.canDivide() && world.creatures.length + born.length < CONFIG.population.max) {
+      if (c.dead) continue; // уберём ниже одним вызовом removeDead()
+      if (c.canDivide() && world.creatures.length + born.length < world.maxPopulation) {
         born.push(c.divide());
         this.particles.emitSparkles(c.x, c.y, '#d9c6ff', 12, 90);
       }
     }
+    this.removeDead();
     world.creatures.push(...born);
 
     // Не даём миру вымереть
@@ -221,6 +279,7 @@ class Simulation {
       this.respawnTimer = CONFIG.population.respawnInterval;
     }
 
+    this.language.record(world.creatures, dt);
     this.particles.update(dt);
   }
 
@@ -259,6 +318,7 @@ class Simulation {
 
     climate.drawSnow(ctx);
     this.particles.draw(ctx);
+    this.logo.render(frameDt, now);
   }
 
   /** Курсор и всплывающая подсказка над существом. */
@@ -283,6 +343,8 @@ class Simulation {
         `<br>Скорость: ${Math.round(t.maxSpeed)} px/с` +
         `<br>Трата: ${t.idleCost.toFixed(1)}/с в покое, +${t.moveCost.toFixed(1)}/с на бегу` +
         `<br>Погода: ${UI.thermalLabel(c)}` +
+        `<br><span class="tt-head">🗣 Речь</span>` +
+        `<br>Говорит: ${UI.wordLabel(c.signal)} · слышит: ${c.speaker ? UI.wordLabel(c.heardSignal) : 'никого'}` +
         `<br>${state}`);
     } else {
       this.ui.hideTooltip();
@@ -320,6 +382,18 @@ class Simulation {
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Кого существо слышит: пунктир до ближайшего соседа
+    if (c.speaker && !c.speaker.dead) {
+      ctx.setLineDash([3, 5]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(c.speaker.x, c.speaker.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Что существо видит сейчас: еда — зелёный кружок, яд — красный
     ctx.lineWidth = 2;
     for (const [item, color] of [[c.seenFood, '#7dffb0'], [c.seenPoison, '#ff4d6d']]) {
@@ -348,6 +422,7 @@ class Simulation {
       dna: world.averageDNA(),
       avgFur: world.creatures.reduce((s, c) => s + c.traits.fur, 0) / Math.max(1, world.creatures.length),
       climate: world.climate,
+      language: this.language.summary(),
     };
   }
 

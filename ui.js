@@ -35,6 +35,8 @@ class UI {
       valSeason: $('val-season'),
       valClimate: $('val-climate'),
       resetSettings: $('btn-reset-settings'),
+      lexiconRows: $('lexicon-rows'),
+      lexiconSilence: $('lexicon-silence'),
       pauseBtn: $('btn-pause'),
       speedBtn: $('btn-speed'),
       callBtn: $('btn-call'),
@@ -98,6 +100,30 @@ class UI {
     return '😌 комфортно';
   }
 
+  /** «▲ (громко)» или «молчит» — для карточки существа. */
+  static wordLabel(signal) {
+    const w = wordForSignal(signal);
+    return w ? `<span style="color:${w.color}">${w.glyph}</span> ${w.name.toLowerCase()}` : 'молчит';
+  }
+
+  /** Словарь: доля каждого слова в речи и его «значение», если оно появилось. */
+  updateLexicon(summary) {
+    const names = { poison: '⚠️ рядом яд', food: '🍀 рядом еда', none: '🌫 ничего не видно' };
+    this.el.lexiconRows.innerHTML = summary.words.map(({ word, share, meaning }) => {
+      const pct = Math.round(share * 100);
+      const m = meaning
+        ? `звучит, когда <b>${names[meaning.context]}</b> (×${meaning.lift.toFixed(1)})`
+        : (pct > 0 ? 'значение пока не сложилось' : 'не используется');
+      return `<div class="lex-row">
+          <span class="lex-glyph" style="color:${word.color}">${word.glyph}</span>
+          <span class="lex-bar"><span style="width:${pct}%;background:${word.color}"></span></span>
+          <span class="lex-share">${pct}%</span>
+          <span class="lex-meaning">${m}</span>
+        </div>`;
+    }).join('');
+    this.el.lexiconSilence.textContent = `🤫 Молчат: ${Math.round(summary.silenceShare * 100)}% времени`;
+  }
+
   static formatClock(seconds) {
     const s = Math.max(0, Math.round(seconds));
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -147,6 +173,7 @@ class UI {
     this.el.dnaHair.textContent = `${Math.round(d.hairCount)} × ${Math.round(d.hairLength)} px`;
     this.el.dnaEyes.textContent = d.numEyes.toFixed(1);
     this.updateSeason(stats.climate, stats.avgFur);
+    this.updateLexicon(stats.language);
     this.el.awarenessBar.style.width = `${Math.round(stats.awareness * 100)}%`;
     this.el.awarenessText.textContent = stats.awareness >= 1
       ? 'Пробуждены ✨'

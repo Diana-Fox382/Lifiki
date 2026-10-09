@@ -60,6 +60,9 @@ class Creature {
     this.commTarget = null;     // {x, y} — точка фигуры во время «Сеанса связи»
     this.sepX = 0;              // сила «расталкивания» от соседей (считает HiveMind)
     this.sepY = 0;
+    this.signal = 0;            // EmitSignal: что существо «говорит» прямо сейчас (−1…1)
+    this.heardSignal = 0;       // NearestSignal: что говорит ближайший сосед
+    this.speaker = null;        // кого слушаем (для подсветки)
     this.seenFood = null;       // что существо видит прямо сейчас (для подсветки)
     this.seenPoison = null;
     this.thermalCost = 0;       // доп. трата энергии из-за погоды (в секунду)
@@ -171,6 +174,11 @@ class Creature {
     this.seenFood = food ? food.item : null;      // для подсветки при наведении курсора
     this.seenPoison = poison ? poison.item : null;
 
+    // Слух: ближайший сосед в радиусе слышимости (во все стороны, без поля зрения).
+    // Слышим ровно то число, которое он «произносит» — значение придумывает эволюция.
+    this.speaker = world.nearestNeighbor(this, CONFIG.language.hearingRadius);
+    this.heardSignal = this.speaker ? this.speaker.signal : 0;
+
     // 2) ВХОДЫ НЕЙРОСЕТИ. Если объект не виден — оба его входа = 0 («ничего нет»).
     //    Угол: −1…1 (слева/справа), близость: 1 = вплотную, →0 = на краю зрения.
     const inputs = [
@@ -179,12 +187,14 @@ class Creature {
       poison ? wrapAngle(Math.atan2(poison.dy, poison.dx) - this.angle) / Math.PI : 0,
       poison ? 1 - poison.dist / vision : 0,
       this.energyRatio,                            // насколько я сыт
+      this.heardSignal,                            // NearestSignal: что говорит ближайший сосед
     ];
 
     // 3) МОЗГ ДУМАЕТ: два выхода от -1 до 1
     const output = this.brain.predict(inputs);
     const accel = output[0];   // output[0] → ускорение (газ / тормоз)
     const turn = output[1];    // output[1] → изменение угла (rotation delta)
+    this.signal = output[2];   // output[2] → EmitSignal: что я «говорю» (слово выбирает эволюция)
 
     // 4) ДВИЖЕНИЕ: только по выходам сети; пределы скорости/ускорения — из ДНК
     this.angle = wrapAngle(this.angle + turn * c.maxTurnRate * dt);
@@ -198,21 +208,37 @@ class Creature {
     //    покой (размер, зрение, глаза) + движение (растёт с размером и скоростью)
     //    + климат (зимой мёрзнут лысые, летом перегреваются пушистые — seasons.js)
     const speedRatio = speed / t.maxSpeed;
-    this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio + this.thermalCost) * dt;
+    //    + болтовня (signalCost × сигнал²): говорить просто так — невыгодно
+    const talkCost = CONFIG.language.signalCost * this.signal * this.signal;
+    this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio + this.thermalCost + talkCost) * dt;
 
     // 6) ЕДА И ЯД: съедаем то, чего касаемся (даже если не видим — например, спиной)
-    const touchFood = foodScan.touch;
-    const touchPoison = poisonScan.touch;
-    if (touchFood) {
-      const food = touchFood;
+    this.consumeTouch(world, particles, foodScan.touch, poisonScan.touch);
+  }
+
+  /**
+   * Проверка касаний «здесь и сейчас» без зрения — нужна при перетаскивании
+   * мышкой: куда Создатель притащил, то и съедено.
+   * @returns {boolean} true — если существо погибло (наткнулось на яд)
+   */
+  checkContacts(world, particles) {
+    const reach = this.radius + CONFIG.world.eatPadding;
+    const food = world.scan(world.food, this.x, this.y, 0, 0, Math.PI, reach).touch;
+    const poison = world.scan(world.poison, this.x, this.y, 0, 0, Math.PI, reach).touch;
+    this.consumeTouch(world, particles, food, poison);
+    return this.dead;
+  }
+
+  /** Съесть еду и/или яд, которых касаемся. */
+  consumeTouch(world, particles, food, poison) {
+    if (food) {
       world.removeAt(world.food, food.index);
       this.energy = Math.min(this.maxEnergy, this.energy + CONFIG.energy.food);
       this.foodEaten++;
       this.eatScale = 1.3; // резкий scale(1.3) при поедании
       particles.emitSparkles(food.item.x, food.item.y, '#7dffb0', 7, 60);
     }
-    if (touchPoison) {
-      const poison = touchPoison;
+    if (poison) {
       world.removeAt(world.poison, poison.index);
       particles.emitSparkles(poison.item.x, poison.item.y, '#ff4d6d', 10, 80);
       this.die('poison');
@@ -222,6 +248,7 @@ class Creature {
   /** Режим «Погладить»: стоим, мурчим, пускаем сердечки, набираем энергию. */
   updatePetting(dt, particles) {
     this.pettingTimer -= dt;
+    this.signal *= Math.max(0, 1 - dt * 3); // на ручках не до разговоров — замолкает
     const damp = Math.max(0, 1 - dt * 12);
     this.vx *= damp;
     this.vy *= damp;
@@ -242,6 +269,7 @@ class Creature {
    */
   updateCommunication(dt, world) {
     const cfg = CONFIG.comm;
+    this.signal *= Math.max(0, 1 - dt * 3); // в ритуале существа молчат
     const d = world.delta(this.x, this.y, this.commTarget.x, this.commTarget.y);
     const dist = Math.hypot(d.x, d.y) || 0.0001;
 
@@ -425,7 +453,15 @@ class Creature {
     if (assets.creatureImage) this.drawImageSprite(ctx, assets);
     else this.drawSoot(ctx, assets, now);
 
-    if (isChampion) assets.drawCrown(ctx, this.x, this.y - r - this.dna.hairLength * 0.8 - 8, time);
+    const top = this.y - r - this.dna.hairLength * 0.8;
+    if (isChampion) assets.drawStar(ctx, this.x, top - 12, time);
+
+    // «Речь»: если сигнал достаточно громкий — облачко со словом справа сверху
+    const word = wordForSignal(this.signal);
+    if (word) {
+      const loud = clamp((Math.abs(this.signal) - CONFIG.language.speakThreshold) / 0.3, 0.35, 1);
+      assets.drawSpeechBubble(ctx, this.x + r * 0.9 + 10, top - 4, word, loud);
+    }
   }
 
   /** Процедурная чернушка: шерсть → ядро → глаза. */
