@@ -44,7 +44,7 @@ class Creature {
     // --- Мозг и жизнь ---
     const b = CONFIG.brain;
     this.brain = brain || new NeuralNetwork(b.inputs, b.hidden, b.outputs);
-    this.dna = dna || DNA.random();
+    this.dna = dna || DNA.wildType();
     this.traits = this.dna.traits;  // готовые характеристики тела (скорость, траты…)
     this.generation = generation;
     this.energy = CONFIG.energy.start * this.maxEnergy;
@@ -76,6 +76,9 @@ class Creature {
     this.sickTimer = 0;         // > 0 — болеет (тронул яд, будучи под защитой)
     // Доверие к руке Создателя (−1…1): выучено из своего опыта и увиденного
     this.handTrust = 0;
+    // Линька: какая доля «зимней шубы» из ДНК сейчас на существе (1 — зимняя, 0.5 — летняя)
+    this.coat = null;           // выставится по погоде в первом update()
+    this.coatTraits = { fur: 0 };
     this.seenHand = null;       // видит ли руку прямо сейчас: 'food' (тянется) / 'danger' (убегает)
     this.handSeen = null;       // откуда бежать: {dx, dy, dist} (видит руку или помнит, где видел)
     this.alarm = null;          // тревога: {x, y, timer} — где видел страшную руку
@@ -114,7 +117,9 @@ class Creature {
   /** Радиус ядра: из ДНК, голодное существо чуть «сдувается» (до −15 %). */
   get radius() { return this.dna.baseRadius * (0.85 + 0.15 * this.energyRatio); }
   /** Радиус вместе с шерстью — для рисования, короны и т.п. */
-  get visualRadius() { return this.radius + this.dna.hairLength; }
+  get visualRadius() { return this.radius + this.hairLength; }
+  /** Текущая длина шерсти: ген (зимняя шуба) × линька. */
+  get hairLength() { return this.dna.hairLength * (this.coat ?? 1); }
   get speed() { return Math.hypot(this.vx, this.vy); }
   get isPetted() { return this.pettingTimer > 0; }
   get isCommunicating() { return this.commTarget !== null; }
@@ -142,9 +147,14 @@ class Creature {
   update(dt, world, particles) {
     this.age += dt;
     // Погода: сколько сейчас стоит жизнь в этой шубке и насколько холодно (для дрожи)
-    this.thermalCost = world.climate.thermalCost(this.traits);
-    this.coldStress = world.climate.coldStress(this.traits);
-    this.heatStress = world.climate.heatStress(this.traits);
+    // Линька: к лету шерсть плавно редеет и укорачивается, к зиме отрастает
+    const m = CONFIG.molt;
+    const target = lerp(m.winter, m.summer, (world.climate.temperature + 1) / 2);
+    this.coat = this.coat === null ? target : lerp(this.coat, target, Math.min(1, dt / m.time));
+    this.coatTraits.fur = this.traits.fur * this.coat; // греет та шуба, что сейчас надета
+    this.thermalCost = world.climate.thermalCost(this.coatTraits);
+    this.coldStress = world.climate.coldStress(this.coatTraits);
+    this.heatStress = world.climate.heatStress(this.coatTraits);
     this.updateAnimations(dt);
     if (this.sickTimer > 0) this.sickTimer -= dt;
     if (this.frightFlash > 0) this.frightFlash -= dt;
@@ -621,7 +631,8 @@ class Creature {
     body.cy = this.y + jy - hop;
     body.r = r;
     body.coreR = r;                       // ядро = baseRadius из ДНК
-    body.hairLength = this.dna.hairLength;
+    body.hairLength = this.hairLength;
+    body.coat = this.coat ?? 1;
     body.breath = breath;
     body.purring = purring;
     return body;
@@ -666,7 +677,7 @@ class Creature {
     if (assets.creatureImage) this.drawImageSprite(ctx, assets);
     else this.drawSoot(ctx, assets, now);
 
-    const top = this.y - r - this.dna.hairLength * 0.8;
+    const top = this.y - r - this.hairLength * 0.8;
     if (isChampion) assets.drawStar(ctx, this.x, top - 12, time);
 
     // Испуг: первые мгновения тревоги над головой мелькает «!»
@@ -753,7 +764,7 @@ class Creature {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.drawAngle + sway);
     ctx.scale(sx * appear, sy * appear);
-    assets.drawCreatureImage(ctx, r + this.dna.hairLength * 0.5);
+    assets.drawCreatureImage(ctx, r + this.hairLength * 0.5);
     ctx.restore();
   }
 }

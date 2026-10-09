@@ -57,7 +57,7 @@ class SootFur {
   reset(body) {
     for (const h of this.hairs) {
       this.computeRoot(h, body);
-      const seg = h.length / h.nodes.length;
+      const seg = (h.length * (body.coat ?? 1)) / h.nodes.length;
       h.nodes.forEach((n, k) => {
         n.x = n.ox = h.rootX + h.dirX * seg * (k + 1);
         n.y = n.oy = h.rootY + h.dirY * seg * (k + 1);
@@ -108,7 +108,7 @@ class SootFur {
 
     for (const h of this.hairs) {
       this.computeRoot(h, body);
-      const seg = (h.length * fluff) / segCount;
+      const seg = (h.length * (body.coat ?? 1) * fluff) / segCount; // линька: летом короче
       const perpX = -h.dirY, perpY = h.dirX;
 
       // Idle-«ветерок»: две несоразмерные синусоиды → движение не выглядит механическим
@@ -172,7 +172,7 @@ class SootFur {
       ctx.lineTo(nodes[last].x + px, nodes[last].y + py);
     }
     ctx.strokeStyle = '#060609';
-    ctx.lineWidth = clamp(r * cfg.hairWidth, 1.6, 5);
+    ctx.lineWidth = clamp(r * cfg.hairWidth, cfg.hairWidthMin, cfg.hairWidthMax);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();

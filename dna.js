@@ -35,33 +35,46 @@ class DNA {
     this.traits = this.computeTraits();
   }
 
-  /** Случайная ДНК для поколения 0: каждый ген равномерно в своём диапазоне. */
-  static random() {
+  /**
+   * «Дикий тип» — ДНК поколения 0: стандартная чернушка (2 глаза, густая
+   * короткая шерсть, средний размер) с небольшим природным разбросом.
+   * Всё остальное — одноглазые, трёхглазые, лохматые, гиганты — появляется
+   * только мутациями у потомков, если отбор их поддержит.
+   */
+  static wildType() {
+    const w = CONFIG.dna.wildType, spread = CONFIG.dna.wildSpread;
     const genes = {};
     for (const [name, g] of Object.entries(DNA_GENES)) {
-      const v = randRange(g.min, g.max + (g.integer ? 1 : 0));
-      genes[name] = g.integer ? Math.min(g.max, Math.floor(v)) : v;
+      let v = name === 'numEyes' ? w.numEyes : w[name] * (1 + randRange(-spread, spread));
+      if (g.integer) v = Math.round(v);
+      genes[name] = clamp(v, g.min, g.max);
     }
     return new DNA(genes);
   }
 
+  /** Мутант ли (глаз не два, как у дикого типа)? */
+  get isMutant() { return this.numEyes !== CONFIG.dna.wildType.numEyes; }
+
   /**
    * Копия с мутациями. Каждый ген с вероятностью `rate` изменяется
    * на случайные ±(обычно 10, максимум 20) %.
+   * Число глаз — особый ген: меняется редко (eyeMutationRate) и сразу на ±1 глаз.
    */
   mutated(rate = Math.min(1, CONFIG.dna.mutationRate * CONFIG.evolution.tempo)) {
     const genes = {};
     for (const [name, g] of Object.entries(DNA_GENES)) {
       let v = this[name];
+      if (name === 'numEyes') {
+        if (Math.random() < Math.min(1, CONFIG.dna.eyeMutationRate * CONFIG.evolution.tempo)) {
+          v = clamp(v + (Math.random() < 0.5 ? -1 : 1), g.min, g.max);
+        }
+        genes[name] = v;
+        continue;
+      }
       if (Math.random() < rate) {
         const factor = 1 + clamp(gaussianRandom() * CONFIG.dna.mutationAmount, -CONFIG.dna.maxStep, CONFIG.dna.maxStep);
         let nv = v * factor;
-        if (g.integer) {
-          nv = Math.round(nv);
-          // У маленьких целых (глаза: 1–4) ±20 % может не дотянуть до следующего числа,
-          // поэтому иногда делаем шаг ±1 напрямую — иначе ген «застрянет».
-          if (nv === v) nv = v + (Math.random() < 0.5 ? -1 : 1);
-        }
+        if (g.integer) nv = Math.round(nv);
         v = clamp(nv, g.min, g.max);
       }
       genes[name] = v;

@@ -232,7 +232,8 @@ class UI {
     this.el.recordAlive.textContent = UI.formatAge(stats.championAge);
     this.el.food.textContent = stats.food;
     this.el.poison.textContent = stats.poison;
-    this.el.reserve.textContent = `${stats.lifeReserve} / ${stats.lifeReserveMax}`;
+    // 🛡 — сейчас существ не больше запаса, и мир их бережёт (спячка вместо голодной смерти)
+    this.el.reserve.textContent = `${stats.population <= stats.lifeReserve && stats.population > 0 ? '🛡 ' : ''}${stats.lifeReserve} / ${stats.lifeReserveMax}`;
     this.el.trust.textContent = UI.trustLabel(stats.hand.trust, stats.hand.afraid);
     const d = stats.dna;
     this.el.dnaRadius.textContent = `${d.baseRadius.toFixed(1)} px`;

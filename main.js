@@ -448,7 +448,7 @@ class Simulation {
     for (const cr of this.world.creatures) {
       const d = this.world.delta(x, y, cr.x, cr.y);
       const dist = Math.hypot(d.x, d.y);
-      if (dist < cr.radius + cr.dna.hairLength * 0.4 + CONFIG.petting.pickPadding && dist < bestD) {
+      if (dist < cr.radius + cr.hairLength * 0.4 + CONFIG.petting.pickPadding && dist < bestD) {
         best = cr;
         bestD = dist;
       }
@@ -582,8 +582,8 @@ class Simulation {
         `<b>Пушистик #${c.id}</b> · поколение ${c.generation}<br>Возраст: ${UI.formatAge(c.age)}` +
         `<br>Энергия: ${energy}% из ${Math.round(c.maxEnergy)}<br>Съел: ${c.foodEaten} · Детей: ${c.children}` +
         `<br><span class="tt-head">🧬 ДНК</span>` +
-        `<br>Ядро: ${d.baseRadius.toFixed(1)} px · Глаз: ${d.numEyes}` +
-        `<br>Шерсть: ${d.hairCount} × ${d.hairLength.toFixed(0)} px` +
+        `<br>Ядро: ${d.baseRadius.toFixed(1)} px · Глаз: ${d.numEyes}${d.isMutant ? ' (мутант)' : ''}` +
+        `<br>Шерсть: ${d.hairCount} × ${d.hairLength.toFixed(0)} px · сейчас ${Math.round(c.coat * 100)}% (линька)` +
         `<br>Зрение: ${Math.round(d.visionRadius)} px · обзор ${Math.round(t.fov * 180 / Math.PI)}°` +
         `<br><span class="tt-head">⚙️ Тело</span>` +
         `<br>Скорость: ${Math.round(t.maxSpeed)} px/с` +
@@ -674,7 +674,7 @@ class Simulation {
       poison: world.poison.length,
       competence: this.competence.ratio,
       dna: world.averageDNA(),
-      avgFur: world.creatures.reduce((s, c) => s + c.traits.fur, 0) / Math.max(1, world.creatures.length),
+      avgFur: world.creatures.reduce((s, c) => s + c.coatTraits.fur, 0) / Math.max(1, world.creatures.length),
       climate: world.climate,
       language: this.language.summary(),
       hand: this.handMood(),
