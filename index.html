@@ -42,9 +42,9 @@
         <span class="stat-label">⭐ Старейший из живых</span>
         <span class="stat-value" id="stat-record-alive">0 с</span>
       </div>
-      <div class="stat stat-sub" title="Пока существ меньше этого числа, мир сам подселяет новых. Каждое убийство вашими руками навсегда уменьшает запас на одного.">
+      <div class="stat stat-sub" title="Пока существ не больше этого числа, мир их бережёт: от голода они впадают в спячку, от яда — болеют, но не гибнут. Новые появляются только делением. Каждое убийство вашими руками навсегда уменьшает запас на одного.">
         <span class="stat-label">🌱 Запас жизни</span>
-        <span class="stat-value" id="stat-reserve">12 / 12</span>
+        <span class="stat-value" id="stat-reserve">– / –</span>
       </div>
       <div class="stat stat-sub">
         <span class="stat-label"><i class="dot dot-food"></i>Еда &nbsp;<i class="dot dot-poison"></i>Яд</span>
@@ -62,13 +62,13 @@
       </div>
     </div>
 
-    <div class="awareness">
+    <div class="awareness" title="Каждые 20 секунд несколько существ сдают экзамен на арене с едой и ядом. Рядом сдаёт «двойник» — то же тело, но случайный мозг. Цифра — во сколько раз популяция справляется лучше.">
       <div class="awareness-head">
-        <span>🧠 Осознанность</span>
-        <span id="awareness-text">0%</span>
+        <span>🧠 Разум популяции</span>
+        <span id="awareness-text">измеряем…</span>
       </div>
       <div class="awareness-track"><div class="awareness-bar" id="awareness-bar"></div></div>
-      <p class="awareness-hint">Когда среднее поколение превысит 10, существа начнут выходить на связь.</p>
+      <p class="awareness-hint">Во сколько раз они лучше находят еду и обходят яд, чем случайные мозги в тех же телах. Около ×2 — начинают сами выходить на связь.</p>
     </div>
 
     <details class="settings" id="settings">
@@ -147,6 +147,13 @@
     <button class="btn btn-wide" id="btn-reseed">🌱 Начать жизнь заново</button>
   </div>
 
+  <!-- Зарождение жизни: пока прокручивается «первичный бульон» -->
+  <div class="extinct genesis glass" id="genesis" aria-live="polite">
+    <div class="extinct-icon">🌱</div>
+    <div class="extinct-title">Зарождение жизни…</div>
+    <p class="extinct-text" id="genesis-text">Первичный бульон</p>
+  </div>
+
   <!-- Кнопка «спрятать/показать интерфейс» (режим чистых обоев). Клавиша H. -->
   <button class="ui-toggle" id="ui-toggle" title="Спрятать интерфейс (H)" aria-label="Спрятать интерфейс">
     <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -174,6 +181,8 @@
   <script src="creature.js"></script>
   <script src="world.js"></script>
   <script src="hivemind.js"></script>
+  <script src="genesis.js"></script>
+  <script src="competence.js"></script>
   <script src="logo.js"></script>
   <script src="ui.js"></script>
   <script src="main.js"></script>

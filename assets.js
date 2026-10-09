@@ -290,6 +290,20 @@ class AssetManager {
       return;
     }
 
+    // Спячка: глаза закрыты — почти прямые, чуть провисшие чёрточки
+    if (creature.dormant) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.lineCap = 'round';
+      for (const e of eyes) {
+        const erx = baseRX * e.size;
+        ctx.lineWidth = Math.max(1.2, r * 0.09 * e.size);
+        ctx.beginPath();
+        ctx.arc(e.x * r, e.y * r - erx * 1.5, erx * 1.7, Math.PI * 0.36, Math.PI * 0.64);
+        ctx.stroke();
+      }
+      return;
+    }
+
     let open = 1 - creature.blink;
     if (creature.energyRatio < 0.25) open *= 0.55; // голодный — сонный
     open = Math.max(0.08, open);

@@ -69,6 +69,11 @@ class Creature {
     // Общительность (0..1): насколько охотно выходит на «Сеанс связи». Личная черта.
     this.sociability = randRange(0.4, 1);
     this.carefulTimer = 0;      // > 0 — только что вышел из сеанса связи и обходит яд
+    this.memory = new Array(CONFIG.brain.memory).fill(0); // нейроны памяти
+    this.fearCooldown = 0;      // чтобы «испуг» от яда не повторялся каждое мгновение
+    this.protected = false;     // под защитой «запаса жизни» (выставляет Simulation)
+    this.dormant = false;       // спячка
+    this.sickTimer = 0;         // > 0 — болеет (тронул яд, будучи под защитой)
     this.thermalCost = 0;       // доп. трата энергии из-за погоды (в секунду)
     this.coldStress = 0;        // 0..1 — насколько мёрзнет
     this.heatStress = 0;        // 0..1 — насколько перегревается
@@ -108,7 +113,7 @@ class Creature {
   /** Можно ли делиться: сыт, взрослый и не занят (не гладят, не на связи). */
   canDivide() {
     const maturity = CONFIG.evolution.maturityAge / CONFIG.evolution.tempo;
-    return !this.dead && this.energy >= this.maxEnergy && this.age >= maturity
+    return !this.dead && !this.dormant && this.energy >= this.maxEnergy && this.age >= maturity
       && !this.isPetted && !this.isCommunicating;
   }
 
@@ -132,8 +137,10 @@ class Creature {
     this.coldStress = world.climate.coldStress(this.traits);
     this.heatStress = world.climate.heatStress(this.traits);
     this.updateAnimations(dt);
+    if (this.sickTimer > 0) this.sickTimer -= dt;
 
     if (this.isPetted) this.updatePetting(dt, particles);
+    else if (this.dormant) this.updateDormant(dt);
     else if (this.isCommunicating) this.updateCommunication(dt, world, particles);
     else this.updateBrain(dt, world, particles);
 
@@ -151,7 +158,30 @@ class Creature {
       this.drawAngle = lerpAngle(this.drawAngle, target, Math.min(1, dt * 10));
     }
 
-    if (this.energy <= 0) this.die('hunger');
+    if (this.energy <= 0) {
+      // Последних (пока популяция в пределах «запаса жизни») мир бережёт:
+      // от голода и холода они не умирают, а засыпают.
+      if (this.protected) this.enterDormancy();
+      else this.die('hunger');
+    }
+  }
+
+  /** Спячка: не двигается, медленно восстанавливает силы, просыпается при 35 % энергии. */
+  enterDormancy() {
+    this.dormant = true;
+    this.energy = 0.01;
+    this.signal = 0;
+    this.attention = null;
+  }
+
+  updateDormant(dt) {
+    const damp = Math.max(0, 1 - dt * 6);
+    this.vx *= damp;
+    this.vy *= damp;
+    this.signal = 0;
+    this.attention = null;
+    this.energy += CONFIG.population.dormantRecovery * dt;
+    if (this.energy >= this.maxEnergy * CONFIG.population.wakeAt) this.dormant = false;
   }
 
   /**
@@ -195,13 +225,24 @@ class Creature {
       poison ? 1 - poison.dist / vision : 0,
       this.energyRatio,                            // насколько я сыт
       this.heardSignal,                            // NearestSignal: что говорит ближайший сосед
+      ...this.memory,                              // ПАМЯТЬ: что «записал» себе в прошлое мгновение
     ];
 
-    // 3) МОЗГ ДУМАЕТ: два выхода от -1 до 1
+    // 3) МОЗГ ДУМАЕТ: выходы от -1 до 1
+    this.brain.forget(dt);
     const output = this.brain.predict(inputs);
     const accel = output[0];   // output[0] → ускорение (газ / тормоз)
     const turn = output[1];    // output[1] → изменение угла (rotation delta)
     this.signal = output[2];   // output[2] → EmitSignal: что я «говорю» (слово выбирает эволюция)
+    // output[3..] → запись в память: эти числа мозг получит на вход в следующее мгновение
+    for (let m = 0; m < this.memory.length; m++) this.memory[m] = output[3 + m];
+
+    // ОПЫТ: яд оказался совсем рядом — испуг (наказание), сеть ослабит то, что сейчас делала
+    this.fearCooldown -= dt;
+    if (this.fearCooldown <= 0 && world.findNearest(world.poison, this.x, this.y, reach + CONFIG.brain.plasticity.nearMiss)) {
+      this.brain.reward(CONFIG.brain.plasticity.poisonPenalty);
+      this.fearCooldown = 1.5;
+    }
 
     // 4) ДВИЖЕНИЕ: только по выходам сети; пределы скорости/ускорения — из ДНК
     this.angle = wrapAngle(this.angle + turn * c.maxTurnRate * dt);
@@ -230,7 +271,7 @@ class Creature {
     this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio + this.thermalCost + talkCost) * dt;
 
     // 6) ЕДА И ЯД: съедаем то, чего касаемся (даже если не видим — например, спиной)
-    this.consumeTouch(world, particles, foodScan.touch, poisonScan.touch);
+    this.consumeTouch(world, particles, foodScan.touch, poisonScan.touch, false);
   }
 
   /**
@@ -238,27 +279,38 @@ class Creature {
    * мышкой: куда Создатель притащил, то и съедено.
    * @returns {boolean} true — если существо погибло (наткнулось на яд)
    */
-  checkContacts(world, particles) {
+  /**
+   * @param {boolean} byHand — true: существо тащит Создатель (тогда яд убивает всегда)
+   */
+  checkContacts(world, particles, byHand = false) {
     const reach = this.radius + CONFIG.world.eatPadding;
     const food = world.scan(world.food, this.x, this.y, 0, 0, Math.PI, reach).touch;
     const poison = world.scan(world.poison, this.x, this.y, 0, 0, Math.PI, reach).touch;
-    this.consumeTouch(world, particles, food, poison);
+    this.consumeTouch(world, particles, food, poison, byHand);
     return this.dead;
   }
 
   /** Съесть еду и/или яд, которых касаемся. */
-  consumeTouch(world, particles, food, poison) {
+  consumeTouch(world, particles, food, poison, byHand) {
     if (food) {
       world.removeAt(world.food, food.index);
       this.energy = Math.min(this.maxEnergy, this.energy + CONFIG.energy.food);
       this.foodEaten++;
       this.eatScale = 1.3; // резкий scale(1.3) при поедании
       particles.emitSparkles(food.item.x, food.item.y, '#7dffb0', 7, 60);
+      this.brain.reward(CONFIG.brain.plasticity.foodReward); // ОПЫТ: «это было хорошо»
     }
     if (poison) {
       world.removeAt(world.poison, poison.index);
       particles.emitSparkles(poison.item.x, poison.item.y, '#ff4d6d', 10, 80);
-      this.die('poison');
+      if (this.protected && !byHand) {
+        // Защищённые («запас жизни») от яда своей смертью не умирают — тяжело болеют
+        this.energy *= 1 - CONFIG.population.sicknessLoss;
+        this.sickTimer = 3;
+        this.brain.reward(CONFIG.brain.plasticity.poisonPenalty * 2); // и хорошо запоминают
+      } else {
+        this.die(byHand ? 'hand' : 'poison');
+      }
     }
   }
 
@@ -542,6 +594,27 @@ class Creature {
 
     const top = this.y - r - this.dna.hairLength * 0.8;
     if (isChampion) assets.drawStar(ctx, this.x, top - 12, time);
+
+    // Спячка: над головой медленно всплывает «z»
+    if (this.dormant) {
+      const k = (now % 2400) / 2400;
+      ctx.save();
+      ctx.globalAlpha = Math.sin(k * Math.PI) * 0.8;
+      ctx.fillStyle = '#dfe8ff';
+      ctx.font = `800 ${Math.round(9 + k * 5)}px Nunito, sans-serif`;
+      ctx.fillText('z', this.x + r * 0.6 + k * 6, top - k * 14);
+      ctx.restore();
+    }
+    // Болеет (тронул яд под защитой мира): лёгкая зеленоватая дымка
+    if (this.sickTimer > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.sickTimer) * 0.35;
+      ctx.fillStyle = '#7dff9a';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.visualRadius * 0.7, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // «Речь»: если сигнал достаточно громкий — облачко со словом справа сверху
     const word = wordForSignal(this.signal);

@@ -40,6 +40,8 @@ class UI {
       uiToggle: $('ui-toggle'),
       zoomPill: $('zoom-pill'),
       extinct: $('extinct'),
+      genesis: $('genesis'),
+      genesisText: $('genesis-text'),
       reseedBtn: $('btn-reseed'),
       reserve: $('stat-reserve'),
       pauseBtn: $('btn-pause'),
@@ -92,6 +94,15 @@ class UI {
 
   showExtinct(show) {
     this.el.extinct.classList.toggle('visible', show);
+  }
+
+  /** Карточка «Зарождение жизни» (пока идёт доисторическая эпоха). */
+  showGenesis(show, progress) {
+    this.el.genesis.classList.toggle('visible', show);
+    if (show && progress) {
+      this.el.genesisText.textContent =
+        `Доисторических минут: ${Math.round(progress.simMinutes)} · живых: ${progress.population} · поколение ${progress.generation.toFixed(1)}`;
+    }
   }
 
   /** Интерфейс спрятан? (тогда не тратим время на обновление невидимых цифр) */
@@ -228,10 +239,11 @@ class UI {
     this.el.dnaEyes.textContent = d.numEyes.toFixed(1);
     this.updateSeason(stats.climate, stats.avgFur);
     this.updateLexicon(stats.language);
-    this.el.awarenessBar.style.width = `${Math.round(stats.awareness * 100)}%`;
-    this.el.awarenessText.textContent = stats.awareness >= 1
-      ? 'Пробуждены ✨'
-      : `${Math.round(stats.awareness * 100)}%`;
+    // Разум популяции: ×1 — как случайные мозги, ×3 и выше — полная полоска
+    const r = stats.competence;
+    this.el.awarenessBar.style.width = r === null ? '0%' : `${Math.round(clamp((r - 1) / 2, 0, 1) * 100)}%`;
+    this.el.awarenessText.textContent = r === null ? 'измеряем…'
+      : r >= 1.05 ? `×${r.toFixed(1)} лучше случайных` : `×${r.toFixed(1)} — не лучше случайных`;
   }
 
   setPaused(paused) {

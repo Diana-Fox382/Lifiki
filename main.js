@@ -15,7 +15,8 @@ class Simulation {
     // Карма Создателя: скрытая переменная −1…1 (см. addKarma). От неё зависит,
     // какие фигуры существа покажут на «Сеансе связи».
     this.karma = 0;
-    this.hive = new HiveMind(() => ({ karma: this.karma, lexicon: this.language.summary() }));
+    this.hive = new HiveMind(() => ({ karma: this.karma, lexicon: this.language.summary() }),
+      () => this.competence.ratio);
     this.language = new LanguageStats(); // «словарь»: наблюдаем, что значат слова
     this.logo = new LogoSoot(document.getElementById('logo'), assets);
 
@@ -24,7 +25,8 @@ class Simulation {
     this.speed = 1;           // 1x, 2x, 4x
     this.lastFrame = 0;
     this.uiTimer = 0;
-    this.respawnTimer = 0;
+    this.genesisRunning = false;
+    this.competence = new CompetenceMeter(); // «Разум популяции»: экзамен против случайных мозгов
 
     // Состояние указателя (мышь или палец)
     this.pointer = { x: 0, y: 0, vx: 0, vy: 0, t: 0, down: false, inside: false };
@@ -33,10 +35,12 @@ class Simulation {
     this.dragOffsetY = 0;
     this.hovered = null;      // над кем курсор (показываем круг зрения)
 
-    // «Запас жизни»: пока существ меньше этого числа, мир сам подселяет новых.
+    // «Запас жизни»: пока существ не больше этого числа, мир бережёт их от смерти
+    // своей смертью (голод → спячка, яд → болезнь). Новые рождаются только делением.
     // Каждое убийство руками Создателя навсегда уменьшает запас на 1 — поэтому
     // полностью вымереть мир может ТОЛЬКО от ваших рук.
-    this.lifeReserve = CONFIG.population.min;
+    this.lifeReserveMax = 0;  // считается от предела экрана в beginLife()
+    this.lifeReserve = 0;
     this.userKills = 0;
 
     // Камера (зум и перемещение). zoom = 1 — виден весь мир.
@@ -102,9 +106,8 @@ class Simulation {
     window.addEventListener('resize', () => this.resize());
 
     this.world.populate();
-    // Стартовая популяция — не больше предела для этого экрана
-    const initial = Math.min(CONFIG.population.initial, this.world.maxPopulation);
-    for (let i = 0; i < initial; i++) this.spawnCreature();
+    // Первые существа — потомки «первичного бульона» (genesis.js). Дальше — только деление.
+    this.beginLife();
 
     this.bindInput();
     this.ui.bindSettings();
@@ -148,33 +151,36 @@ class Simulation {
   }
 
   /**
-   * Новое существо («подселенец») в случайном месте.
-   *
-   * По умолчанию (CONFIG.population.immigrantsFromBest = 0) это честное
-   * поколение 0: случайный мозг и случайная ДНК. Тогда «ум» появляется
-   * ТОЛЬКО у потомков тех, кто сам сумел наесться и поделиться.
-   *
-   * Если поднять immigrantsFromBest (например, до 0.75), часть подселенцев
-   * будет получать мутированные мозг и ДНК рекордсмена — это «элитизм»
-   * из генетических алгоритмов: эволюция быстрее, но уже не чисто природная.
+   * Зарождение жизни: прокручиваем «первичный бульон» (без отрисовки, ~0.3–1 с)
+   * и выпускаем в мир потомков жизнеспособной линии.
    */
-  spawnCreature() {
-    let brain = null, dna = null, generation = 0;
-    const oldest = this.world.oldestCreature();
-    let source = null;
-    if (oldest && oldest.age > this.world.recordAge) source = { brain: oldest.brain, dna: oldest.dna, generation: oldest.generation };
-    else if (this.world.bestBrain) source = { brain: this.world.bestBrain, dna: this.world.bestDNA, generation: this.world.bestGeneration };
+  beginLife() {
+    this.genesisRunning = true;
+    this.competence.reset();
+    // Запас жизни — доля от предела экрана (и всегда меньше предела, чтобы шла эволюция)
+    this.lifeReserveMax = Math.max(2, Math.min(this.world.maxPopulation - 2,
+      Math.round(this.world.maxPopulation * CONFIG.population.reserveShare)));
+    this.lifeReserve = this.lifeReserveMax;
+    this.ui.showGenesis(true, null);
+    Genesis.run(this.world.width, this.world.height, (p) => this.ui.showGenesis(true, p)).then((founders) => {
+      this.placeFounders(founders);
+      this.genesisRunning = false;
+      this.ui.showGenesis(false, null);
+    });
+  }
 
-    if (source && Math.random() < CONFIG.population.immigrantsFromBest) {
-      brain = source.brain.copy().mutate(CONFIG.brain.mutationRate * 1.5, CONFIG.brain.mutationAmount);
-      dna = source.dna.mutated();
-      generation = source.generation + 1;
+  /** Выпустить основателей в мир: подальше от яда, с чистым опытом, разного возраста. */
+  placeFounders(founders) {
+    const n = Math.min(founders.length, this.world.maxPopulation);
+    for (let i = 0; i < n; i++) {
+      const f = founders[i];
+      const p = this.world.safePoint(CONFIG.world.spawnSafeDistance, this.world.poison);
+      const c = new Creature(p.x, p.y, f.brain.copy(false), f.generation, f.dna);
+      c.energy = c.maxEnergy * 0.6;
+      c.age = randRange(0, CONFIG.evolution.maturityAge); // не все — новорождённые
+      this.world.creatures.push(c);
+      this.particles.emitSparkles(c.x, c.y, '#c9ffd8', 10, 60);
     }
-    // Новые существа появляются подальше от яда (и от других существ)
-    const p = this.world.safePoint(CONFIG.world.spawnSafeDistance, this.world.poison);
-    const c = new Creature(p.x, p.y, brain, generation, dna);
-    this.world.creatures.push(c);
-    return c;
   }
 
   // ===========================================================================
@@ -374,7 +380,7 @@ class Simulation {
     for (let i = 1; i <= steps; i++) {
       c.x = fromX + (dx * i) / steps;
       c.y = fromY + (dy * i) / steps;
-      if (c.checkContacts(w, this.particles)) {
+      if (c.checkContacts(w, this.particles, true)) {
         // Яд! Существо погибло прямо в руках Создателя — карма резко падает,
         // а «запас жизни» мира навсегда уменьшается (см. lifeReserve)
         this.addKarma(CONFIG.karma.kill);
@@ -446,6 +452,10 @@ class Simulation {
     this.karma *= Math.pow(0.5, dt / CONFIG.karma.halfLife);
     this.hive.update(dt, world, this.particles, this.ui, this.time);
 
+    // «Запас жизни»: пока существ не больше запаса, мир бережёт их от смерти своей смертью
+    const isProtected = world.creatures.length <= this.lifeReserve;
+    for (const c of world.creatures) c.protected = isProtected;
+
     for (const c of world.creatures) c.update(dt, world, this.particles);
 
     // Смерти и рождения (идём с конца, чтобы безопасно удалять из массива)
@@ -461,34 +471,20 @@ class Simulation {
     this.removeDead();
     world.creatures.push(...born);
 
-    // Не даём миру вымереть САМОМУ: подселяем, пока существ меньше «запаса жизни».
-    // Запас уменьшают только убийства руками Создателя — так что полное вымирание
-    // возможно лишь по вашей воле.
-    this.respawnTimer -= dt;
-    if (world.creatures.length < this.lifeReserve && this.respawnTimer <= 0) {
-      const c = this.spawnCreature();
-      this.particles.emitSparkles(c.x, c.y, '#c9d6ff', 10, 60);
-      this.respawnTimer = CONFIG.population.respawnInterval;
-    }
-
     this.language.record(world.creatures, dt);
     this.particles.update(dt);
 
     // Мир опустел (это возможно только когда запас жизни исчерпан вашими руками)
-    this.ui.showExtinct(world.creatures.length === 0 && this.lifeReserve === 0);
+    this.ui.showExtinct(world.creatures.length === 0 && !this.genesisRunning);
   }
 
   /** «Начать жизнь заново» после полного вымирания. */
   reseed() {
-    this.lifeReserve = CONFIG.population.min;
+    if (this.genesisRunning) return;
     this.userKills = 0;
     this.karma = 0; // новая жизнь ничего не помнит о прошлом Создателе
-    const initial = Math.min(CONFIG.population.initial, this.world.maxPopulation);
-    for (let i = 0; i < initial; i++) {
-      const c = this.spawnCreature();
-      this.particles.emitSparkles(c.x, c.y, '#c9ffd8', 10, 60);
-    }
     this.ui.showExtinct(false);
+    this.beginLife();
   }
 
   // ===========================================================================
@@ -549,7 +545,9 @@ class Simulation {
     if (c) {
       const d = c.dna, t = c.traits;
       const energy = Math.round(c.energyRatio * 100);
-      const state = c.isPetted ? '😊 мурчит' : c.isCommunicating ? '💬 на связи' : '🍃 гуляет';
+      const state = c.isPetted ? '😊 мурчит' : c.dormant ? '💤 спячка — копит силы'
+        : c.sickTimer > 0 ? '🤢 болеет' : c.isCommunicating ? '💬 на связи' : '🍃 гуляет';
+      const b = c.brain;
       this.ui.showTooltip(this.pointer.x, this.pointer.y,
         `<b>Пушистик #${c.id}</b> · поколение ${c.generation}<br>Возраст: ${UI.formatAge(c.age)}` +
         `<br>Энергия: ${energy}% из ${Math.round(c.maxEnergy)}<br>Съел: ${c.foodEaten} · Детей: ${c.children}` +
@@ -564,6 +562,10 @@ class Simulation {
         `<br><span class="tt-head">🗣 Речь</span>` +
         `<br>Говорит: ${UI.wordLabel(c.signal)} · слышит: ${c.speaker ? UI.wordLabel(c.heardSignal) : 'никого'}` +
         `<br>Общительность: ${Math.round(c.sociability * 100)}%` +
+        `<br><span class="tt-head">🧠 Мозг</span>` +
+        `<br>Обучаемость (ген): ${Math.round(b.plasticity / CONFIG.brain.plasticity.max * 100)}%` +
+        `<br>Уроков жизни: ${b.experience} · опыт изменил мозг на ${b.experienceMagnitude().toFixed(1)}` +
+        `<br>Память: ${c.memory.map(m => m.toFixed(2)).join(' · ')}` +
         `<br>${state}`);
     } else {
       this.ui.hideTooltip();
@@ -638,13 +640,13 @@ class Simulation {
       recordAge: Math.max(world.recordAge, championAge),
       food: world.food.length,
       poison: world.poison.length,
-      awareness: this.hive.awareness(world),
+      competence: this.competence.ratio,
       dna: world.averageDNA(),
       avgFur: world.creatures.reduce((s, c) => s + c.traits.fur, 0) / Math.max(1, world.creatures.length),
       climate: world.climate,
       language: this.language.summary(),
       lifeReserve: this.lifeReserve,
-      lifeReserveMax: CONFIG.population.min,
+      lifeReserveMax: this.lifeReserveMax,
     };
   }
 
@@ -658,6 +660,7 @@ class Simulation {
 
     if (!this.paused) {
       for (let i = 0; i < this.speed; i++) this.step(dt);
+      this.competence.update(dt, this.world); // по одному экзамену за кадр
     }
     this.render(dt);
     this.updateHover();

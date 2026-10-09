@@ -172,7 +172,7 @@ class SootFur {
       ctx.lineTo(nodes[last].x + px, nodes[last].y + py);
     }
     ctx.strokeStyle = '#060609';
-    ctx.lineWidth = clamp(r * cfg.hairWidth, 1.2, 3.2);
+    ctx.lineWidth = clamp(r * cfg.hairWidth, 1.6, 5);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();

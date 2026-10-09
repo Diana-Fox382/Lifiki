@@ -756,3 +756,7 @@ kbd {
     text-align: center;
   }
 }
+
+/* Зарождение жизни — карточка не мешает кликам */
+.genesis { pointer-events: none; }
+.genesis .extinct-text { font-variant-numeric: tabular-nums; }

@@ -1,7 +1,8 @@
 /**
  * hivemind.js — «Общение с Создателем» (Hive Mind Communication).
  *
- * Когда среднее поколение популяции превышает CONFIG.comm.minAvgGeneration,
+ * Когда популяция ищет еду и избегает яда хотя бы в CONFIG.comm.minCompetence раз
+ * лучше случайных мозгов (см. competence.js),
  * у существ появляется «осознанность». Примерно раз в минуту запускается
  * Communication Event:
  *   1) gather — все существа бросают еду и летят к своей точке фигуры.
@@ -288,8 +289,13 @@ class HiveMind {
    * @param {function} getMood — возвращает {karma, lexicon}: карму Создателя
    *                             и сводку словаря (чтобы выбрать фигуру).
    */
-  constructor(getMood = () => ({ karma: 0, lexicon: null })) {
+  /**
+   * @param {function} getMood       — {karma, lexicon}: карма Создателя и сводка словаря
+   * @param {function} getCompetence — «разум популяции» (во сколько раз лучше случайных мозгов)
+   */
+  constructor(getMood = () => ({ karma: 0, lexicon: null }), getCompetence = () => null) {
     this.getMood = getMood;
+    this.getCompetence = getCompetence;
     this.mood = 'neutral';        // 'love' | 'hate' | 'neutral' — настроение текущего сеанса
     this.lastShapeKey = null;
     this.active = false;
@@ -303,10 +309,6 @@ class HiveMind {
     this.shape = null;
   }
 
-  /** Доля «осознанности» (0..1) — показывается полоской в интерфейсе. */
-  awareness(world) {
-    return clamp(world.averageGeneration() / CONFIG.comm.minAvgGeneration, 0, 1);
-  }
 
   update(dt, world, particles, ui, time) {
     this.intensity = lerp(this.intensity, this.active ? 1 : 0, Math.min(1, dt * 2));
@@ -314,7 +316,7 @@ class HiveMind {
     if (!this.active) {
       // Ждём, пока популяция «поумнеет», затем отсчитываем таймер
       // Сами по себе они выходят на связь ОЧЕНЬ редко — это должно ощущаться как чудо.
-      if (CONFIG.comm.enabled && world.averageGeneration() > CONFIG.comm.minAvgGeneration) {
+      if (CONFIG.comm.enabled && (this.getCompetence() || 0) >= CONFIG.comm.minCompetence) {
         this.cooldown -= dt;
         if (this.cooldown <= 0) {
           this.start(world, particles, ui, false);
