@@ -74,6 +74,15 @@ class Creature {
     this.protected = false;     // под защитой «запаса жизни» (выставляет Simulation)
     this.dormant = false;       // спячка
     this.sickTimer = 0;         // > 0 — болеет (тронул яд, будучи под защитой)
+    // Доверие к руке Создателя (−1…1): выучено из своего опыта и увиденного
+    this.handTrust = 0;
+    this.seenHand = null;       // видит ли руку прямо сейчас: 'food' (тянется) / 'danger' (убегает)
+    this.handSeen = null;       // откуда бежать: {dx, dy, dist} (видит руку или помнит, где видел)
+    this.alarm = null;          // тревога: {x, y, timer} — где видел страшную руку
+    this.frightFlash = 0;       // > 0 — только что испугался (мелькает «!»)
+    // Пугливость (0..1): сила врождённого рефлекса бегства от того, что выучено как опасное.
+    // Личная черта: наследуется с небольшими мутациями, её подбирает отбор.
+    this.skittish = randRange(0.1, 1);
     this.thermalCost = 0;       // доп. трата энергии из-за погоды (в секунду)
     this.coldStress = 0;        // 0..1 — насколько мёрзнет
     this.heatStress = 0;        // 0..1 — насколько перегревается
@@ -138,6 +147,8 @@ class Creature {
     this.heatStress = world.climate.heatStress(this.traits);
     this.updateAnimations(dt);
     if (this.sickTimer > 0) this.sickTimer -= dt;
+    if (this.frightFlash > 0) this.frightFlash -= dt;
+    if (this.handTrust !== 0) this.handTrust *= Math.pow(0.5, dt / CONFIG.hand.halfLife); // время лечит
 
     if (this.isPetted) this.updatePetting(dt, particles);
     else if (this.dormant) this.updateDormant(dt);
@@ -203,12 +214,46 @@ class Creature {
     //    И внутри конуса обзора (зависит от числа глаз, ген numEyes).
     const foodScan = world.scan(world.food, this.x, this.y, vision, this.angle, halfFov, reach);
     const poisonScan = world.scan(world.poison, this.x, this.y, vision, this.angle, halfFov, reach);
-    const food = foodScan.seen;
-    const poison = poisonScan.seen;
-    this.seenFood = food ? food.item : null;      // для подсветки при наведении курсора
+    let food = foodScan.seen;
+    let poison = poisonScan.seen;
+
+    // РУКА СОЗДАТЕЛЯ — сама по себе нейтральный стимул. Что она значит, каждое
+    // существо выучивает само (handTrust, см. learnHand), и только тогда замечает её:
+    //   • доверяет — видит руку «как еду», и врождённый поиск еды ведёт к ней;
+    //   • боится — срабатывает врождённый рефлекс бегства (сила — черта «пугливость»).
+    //     Почему не «как яд»: замеры показали, что от яда они не убегают, а обходят его
+    //     вплотную — от неподвижной угрозы этого хватает, от хватающей руки нет.
+    // Чем слабее чувство, тем «дальше» кажется рука (до 2 раз; сильное чувство — как есть).
+    this.seenHand = null;
+    this.handSeen = null;
+    const ht = this.handTrust, hc = CONFIG.hand;
+    if (world.hand && Math.abs(ht) >= hc.minTrust) {
+      const h = world.scan([world.hand], this.x, this.y, vision, this.angle, halfFov, 0).seen;
+      if (h) {
+        if (ht > 0) {
+          const felt = { ...h, dist: Math.min(vision * 0.999, h.dist * (2 - ht)) };
+          if (!food || felt.dist < food.dist) { food = felt; this.seenHand = 'food'; }
+        } else {
+          this.seenHand = 'danger';
+          if (!this.alarm) this.frightFlash = 0.8; // новый испуг (а не продолжение старого)
+          this.alarm = { x: world.hand.x, y: world.hand.y, timer: hc.alarmTime };
+        }
+      }
+    }
+    // Тревога: испуг не пропадает в тот же миг, когда рука скрылась из виду, —
+    // ещё немного уходим от места, где её видели
+    if (this.alarm) {
+      this.alarm.timer -= dt;
+      if (this.alarm.timer <= 0) this.alarm = null;
+      else {
+        const d = world.delta(this.x, this.y, this.alarm.x, this.alarm.y);
+        this.handSeen = { dx: d.x, dy: d.y, dist: Math.hypot(d.x, d.y), fade: this.alarm.timer / hc.alarmTime };
+      }
+    }
+    this.seenFood = food && this.seenHand !== 'food' ? food.item : null;      // для подсветки при наведении курсора
     this.seenPoison = poison ? poison.item : null;
     // Куда смотрят глаза: на яд (страх важнее), иначе на еду (единичный вектор)
-    const look = poison || food;
+    const look = this.handSeen || poison || food; // испуг важнее всего — глаза на руку
     this.attention = look ? { x: look.dx / (look.dist || 1), y: look.dy / (look.dist || 1) } : null;
 
     // Слух: ближайший сосед в радиусе слышимости (во все стороны, без поля зрения).
@@ -252,6 +297,20 @@ class Creature {
     this.vx = Math.cos(this.angle) * speed;
     this.vy = Math.sin(this.angle) * speed;
 
+    // Рефлекс бегства от руки, которой боится: тем сильнее, чем ближе рука,
+    // чем сильнее страх и чем пугливее характер. Бегство тратит силы (см. трату ниже).
+    let flee = 0;
+    if (this.handSeen) {
+      const hs = this.handSeen, d = hs.dist || 1;
+      flee = this.skittish * Math.max(0, -ht) * Math.max(0, 1 - d / vision) * (hs.fade ?? 1);
+      const push = CONFIG.hand.fleeAccel * flee * dt;
+      this.vx -= (hs.dx / d) * push;
+      this.vy -= (hs.dy / d) * push;
+      const v = Math.hypot(this.vx, this.vy);
+      if (v > t.maxSpeed) { this.vx *= t.maxSpeed / v; this.vy *= t.maxSpeed / v; }
+      if (v > 1) this.angle = Math.atan2(this.vy, this.vx);
+    }
+
     // Первые секунды после «Сеанса связи» существо ещё осторожно: огибает яд,
     // пока «приходит в себя» (иначе, выходя из фигуры, оно спотыкалось о соседний яд).
     if (this.carefulTimer > 0) {
@@ -268,7 +327,7 @@ class Creature {
     const speedRatio = speed / t.maxSpeed;
     //    + болтовня (signalCost × сигнал²): говорить просто так — невыгодно
     const talkCost = CONFIG.language.signalCost * this.signal * this.signal;
-    this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio + this.thermalCost + talkCost) * dt;
+    this.energy -= (t.idleCost + t.moveCost * (speedRatio * speedRatio + flee) + this.thermalCost + talkCost) * dt;
 
     // 6) ЕДА И ЯД: съедаем то, чего касаемся (даже если не видим — например, спиной)
     this.consumeTouch(world, particles, foodScan.touch, poisonScan.touch, false);
@@ -402,18 +461,29 @@ class Creature {
   }
 
   /**
+   * Выучить отношение к руке (правило Рескорлы — Вагнера: чем неожиданнее
+   * событие, тем сильнее урок). target: +1 — рука добрая, −1 — опасная.
+   * strength: насколько впечатляющее событие. Ген обучаемости ускоряет выучивание.
+   */
+  learnHand(target, strength) {
+    const p = CONFIG.brain.plasticity;
+    const gene = 0.3 + this.brain.plasticity / p.initialMax;    // 0.3 (не учится по-другому) … 2.3
+    const a = clamp(CONFIG.hand.learnRate * gene * strength, 0, 1);
+    this.handTrust = clamp(this.handTrust + a * (target - this.handTrust), -1, 1);
+  }
+
+  /**
    * Захочет ли существо выйти на связь? Это его выбор:
    *   • общительность — личная черта (наследуется с небольшими мутациями);
    *   • голодному не до разговоров;
-   *   • любят Создателя — откликаются охотнее, боятся — реже;
+   *   • доверяет руке Создателя — откликается охотнее, боится — реже;
    *   • если Создатель позвал сам — откликаются чуть охотнее.
    */
   wantsToTalk(mood, called) {
     if (this.dead || this.isPetted) return false;
     let p = CONFIG.comm.joinChance * this.sociability;
     if (this.energyRatio < 0.3) p *= 0.3;
-    if (mood === 'love') p *= 1.15;
-    else if (mood === 'hate') p *= 0.85;
+    p *= 1 + 0.3 * this.handTrust;
     if (called) p += 0.1;
     return Math.random() < p;
   }
@@ -468,6 +538,10 @@ class Creature {
     child.appear = 1;
     // Характер наследуется: общительность родителя ± немного
     child.sociability = clamp(this.sociability + gaussianRandom() * 0.08, 0.15, 1);
+    // Отношение к руке Создателя — не гены, а «культура»: детёныш перенимает часть
+    // страха или доверия родителя (так и звери учатся бояться у матери)
+    child.handTrust = this.handTrust * CONFIG.hand.culture;
+    child.skittish = clamp(this.skittish + gaussianRandom() * 0.08, 0, 1);
 
     // Сильное вытягивание при делении
     this.stretch = 1;
@@ -594,6 +668,18 @@ class Creature {
 
     const top = this.y - r - this.dna.hairLength * 0.8;
     if (isChampion) assets.drawStar(ctx, this.x, top - 12, time);
+
+    // Испуг: первые мгновения тревоги над головой мелькает «!»
+    if (this.frightFlash > 0) {
+      const k = 1 - this.frightFlash / 0.8;
+      ctx.save();
+      ctx.globalAlpha = Math.sin(k * Math.PI);
+      ctx.fillStyle = '#ffd36b';
+      ctx.font = '800 15px Nunito, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('!', this.x - r * 0.7, top - 2 - k * 6);
+      ctx.restore();
+    }
 
     // Спячка: над головой медленно всплывает «z»
     if (this.dormant) {

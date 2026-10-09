@@ -12,10 +12,9 @@ class Simulation {
     this.ui = new UI();
     this.world = new World(window.innerWidth, window.innerHeight);
     this.particles = new ParticleSystem(CONFIG.simulation.maxParticles);
-    // Карма Создателя: скрытая переменная −1…1 (см. addKarma). От неё зависит,
-    // какие фигуры существа покажут на «Сеансе связи».
-    this.karma = 0;
-    this.hive = new HiveMind(() => ({ karma: this.karma, lexicon: this.language.summary() }),
+    // Настроение «Сеанса связи» больше не скрытая карма, а то, что существа
+    // сами выучили о руке Создателя (см. Creature.learnHand и handMood()).
+    this.hive = new HiveMind(() => ({ ...this.handMood(), lexicon: this.language.summary() }),
       () => this.competence.ratio);
     this.language = new LanguageStats(); // «словарь»: наблюдаем, что значат слова
     this.logo = new LogoSoot(document.getElementById('logo'), assets);
@@ -29,7 +28,7 @@ class Simulation {
     this.competence = new CompetenceMeter(); // «Разум популяции»: экзамен против случайных мозгов
 
     // Состояние указателя (мышь или палец)
-    this.pointer = { x: 0, y: 0, vx: 0, vy: 0, t: 0, down: false, inside: false };
+    this.pointer = { x: 0, y: 0, vx: 0, vy: 0, t: 0, down: false, inside: false, touch: false };
     this.dragged = null;      // кого держим «на ручках»
     this.dragOffsetX = 0;     // за какое место схватили
     this.dragOffsetY = 0;
@@ -201,6 +200,7 @@ class Simulation {
       this.pointer.vy = lerp(this.pointer.vy, ((y - this.pointer.y) / dtMs) * 1000, 0.35);
       this.pointer.x = x;
       this.pointer.y = y;
+      this.pointer.touch = e.pointerType === 'touch'; // палец: рука «в мире», только пока касается
       this.pointer.t = t;
     };
     const dragTarget = () => {
@@ -306,6 +306,7 @@ class Simulation {
           d.vx = Math.cos(d.angle) * s;
           d.vy = Math.sin(d.angle) * s;
           d.pettingTimer = 0; // полетел — уже не мурчит
+          d.learnHand(-1, CONFIG.hand.thrown); // и немного испугался
         }
       }
       this.pointer.down = false;
@@ -381,9 +382,9 @@ class Simulation {
       c.x = fromX + (dx * i) / steps;
       c.y = fromY + (dy * i) / steps;
       if (c.checkContacts(w, this.particles, true)) {
-        // Яд! Существо погибло прямо в руках Создателя — карма резко падает,
-        // а «запас жизни» мира навсегда уменьшается (см. lifeReserve)
-        this.addKarma(CONFIG.karma.kill);
+        // Яд! Существо погибло прямо в руках Создателя. Те, кто это видел,
+        // запоминают: рука опасна. «Запас жизни» навсегда уменьшается (см. lifeReserve)
+        this.witness(c.x, c.y, -1, CONFIG.hand.witnessKill, c);
         this.userKills++;
         this.lifeReserve = Math.max(0, this.lifeReserve - 1);
         this.dragged = null;
@@ -392,13 +393,41 @@ class Simulation {
       }
     }
     c.vx = c.vy = 0;
-    // Покормили с рук — карма растёт
-    if (c.foodEaten > eatenBefore) this.addKarma(CONFIG.karma.feed * (c.foodEaten - eatenBefore));
+    // Покормили с рук — рука добрая
+    if (c.foodEaten > eatenBefore) c.learnHand(1, CONFIG.hand.feed);
   }
 
-  /** Изменить карму Создателя (всегда в пределах −1…1). */
-  addKarma(delta) {
-    this.karma = clamp(this.karma + delta, -1, 1);
+  /** Где сейчас рука Создателя в мировых координатах (или null — её нет в мире). */
+  handPosition() {
+    const p = this.pointer;
+    if (this.pinch || !(p.touch ? p.down : p.inside)) return null;
+    const w = this.screenToWorld(p.x, p.y);
+    return { x: w.x, y: w.y };
+  }
+
+  /**
+   * Свидетели: все, кто в пределах своего радиуса зрения от события,
+   * выучивают урок о руке (суматоху — облако сажи, сердечки — замечают
+   * даже краем глаза, поэтому конус обзора здесь не учитываем).
+   */
+  witness(x, y, target, strength, except = null) {
+    for (const o of this.world.creatures) {
+      if (o === except || o.dead) continue;
+      const d = this.world.delta(x, y, o.x, o.y);
+      if (Math.hypot(d.x, d.y) <= o.dna.visionRadius) o.learnHand(target, strength);
+    }
+  }
+
+  /** Что популяция думает о руке Создателя: среднее доверие и доля боящихся. */
+  handMood() {
+    const list = this.world.creatures;
+    if (list.length === 0) return { trust: 0, afraid: 0 };
+    let sum = 0, afraid = 0;
+    for (const c of list) {
+      sum += c.handTrust;
+      if (c.handTrust <= -CONFIG.hand.minTrust) afraid++;
+    }
+    return { trust: sum / list.length, afraid: afraid / list.length };
   }
 
   /** Убрать погибших (с облачком сажи) — используется и в шаге симуляции, и при перетаскивании. */
@@ -433,7 +462,9 @@ class Simulation {
     if (!t) return;
     if (t.dead || !this.pointer.down) { this.dragged = null; return; }
     t.pet(CONFIG.petting.holdRefresh);
-    this.addKarma(CONFIG.karma.petPerSecond * dt); // гладим — карма медленно растёт
+    // Гладим: сам пушистик и те, кто видит его сердечки, понемногу доверяют руке
+    t.learnHand(1, CONFIG.hand.petPerSecond * dt);
+    this.witness(t.x, t.y, 1, CONFIG.hand.witnessPetPerSecond * dt, t);
     // Держим под курсором (и проверяем, не выросла ли еда прямо под ним)
     const p = this.screenToWorld(this.pointer.x, this.pointer.y);
     this.dragTo(p.x + this.dragOffsetX, p.y + this.dragOffsetY);
@@ -447,9 +478,9 @@ class Simulation {
     const world = this.world;
 
     world.update(dt);
+    // Рука Создателя в мире: курсор над миром (на телефоне — только пока палец касается)
+    world.hand = this.handPosition();
     this.applyDrag(dt);
-    // Карма медленно «забывается» к нулю (существа прощают и забывают)
-    this.karma *= Math.pow(0.5, dt / CONFIG.karma.halfLife);
     this.hive.update(dt, world, this.particles, this.ui, this.time);
 
     // «Запас жизни»: пока существ не больше запаса, мир бережёт их от смерти своей смертью
@@ -482,7 +513,6 @@ class Simulation {
   reseed() {
     if (this.genesisRunning) return;
     this.userKills = 0;
-    this.karma = 0; // новая жизнь ничего не помнит о прошлом Создателе
     this.ui.showExtinct(false);
     this.beginLife();
   }
@@ -562,6 +592,8 @@ class Simulation {
         `<br><span class="tt-head">🗣 Речь</span>` +
         `<br>Говорит: ${UI.wordLabel(c.signal)} · слышит: ${c.speaker ? UI.wordLabel(c.heardSignal) : 'никого'}` +
         `<br>Общительность: ${Math.round(c.sociability * 100)}%` +
+        `<br>Доверие к вам: ${UI.trustLabel(c.handTrust, 0, true)} · пугливость ${Math.round(c.skittish * 100)}%` +
+        (c.seenHand ? `<br>${c.seenHand === 'food' ? '👋 видит вашу руку и тянется к ней' : '😨 видит вашу руку и убегает'}` : '') +
         `<br><span class="tt-head">🧠 Мозг</span>` +
         `<br>Обучаемость (ген): ${Math.round(b.plasticity / CONFIG.brain.plasticity.max * 100)}%` +
         `<br>Уроков жизни: ${b.experience} · опыт изменил мозг на ${b.experienceMagnitude().toFixed(1)}` +
@@ -645,6 +677,7 @@ class Simulation {
       avgFur: world.creatures.reduce((s, c) => s + c.traits.fur, 0) / Math.max(1, world.creatures.length),
       climate: world.climate,
       language: this.language.summary(),
+      hand: this.handMood(),
       lifeReserve: this.lifeReserve,
       lifeReserveMax: this.lifeReserveMax,
     };

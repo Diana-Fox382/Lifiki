@@ -193,7 +193,7 @@ const WORD_SHAPES = {
 };
 
 /**
- * «Перевод» под баннером «Они говорят: …» — по настроению (карме).
+ * «Перевод» под баннером «Они говорят: …» — по настроению (что популяция выучила о руке Создателя).
  * Первая фраза в каждом списке — основная, остальные — для разнообразия.
  * Меняйте и добавляйте свои!
  */
@@ -243,7 +243,7 @@ const MEANING_PHRASES = {
   none: 'Кажется, это их слово для «пусто, ничего нет»',
 };
 
-/** Наборы фигур по настроению (карма Создателя). */
+/** Наборы фигур по настроению (что популяция думает о руке Создателя). */
 const MOOD_SHAPES = {
   love: ['heart', 'smile', 'flower', 'star', 'hi'],
   hate: ['skull', 'cross', 'danger', 'frown', 'lightning'],
@@ -286,14 +286,11 @@ function samplePolylines(polylines, n) {
 
 class HiveMind {
   /**
-   * @param {function} getMood — возвращает {karma, lexicon}: карму Создателя
-   *                             и сводку словаря (чтобы выбрать фигуру).
-   */
-  /**
-   * @param {function} getMood       — {karma, lexicon}: карма Создателя и сводка словаря
+   * @param {function} getMood       — {trust, afraid, lexicon}: среднее доверие популяции
+   *                                   к руке Создателя, доля боящихся и сводка словаря
    * @param {function} getCompetence — «разум популяции» (во сколько раз лучше случайных мозгов)
    */
-  constructor(getMood = () => ({ karma: 0, lexicon: null }), getCompetence = () => null) {
+  constructor(getMood = () => ({ trust: 0, afraid: 0, lexicon: null }), getCompetence = () => null) {
     this.getMood = getMood;
     this.getCompetence = getCompetence;
     this.mood = 'neutral';        // 'love' | 'hate' | 'neutral' — настроение текущего сеанса
@@ -443,18 +440,20 @@ class HiveMind {
   }
 
   /**
-   * Выбор фигуры по карме Создателя:
-   *   карма > 0.4  — любовь: сердце, смайлик, цветок, звезда, «HI»;
-   *   карма < −0.4 — ненависть/страх: череп, крест, знак опасности, грустный смайлик,
+   * Выбор фигуры по тому, что популяция выучила о руке Создателя
+   * (среднее доверие, см. Creature.learnHand):
+   *   > 0.25  — любовь: сердце, смайлик, цветок, звезда, «HI»;
+   *   < −0.25 — ненависть/страх: череп, крест, знак опасности, грустный смайлик,
    *                  молния, а если в их языке есть слово «опасность» — это слово;
    *   иначе        — нейтрально: случайная геометрия ИЛИ случайное слово
    *                  их собственного языка (чем чаще слово звучит, тем вероятнее).
    * Одна и та же фигура два раза подряд не повторяется.
    */
   chooseShape() {
-    const { karma, lexicon } = this.getMood();
-    const t = CONFIG.karma.moodThreshold;
-    this.mood = karma > t ? 'love' : karma < -t ? 'hate' : 'neutral';
+    const { trust, afraid, lexicon } = this.getMood();
+    const t = CONFIG.hand.moodThreshold;
+    this.mood = trust > t ? 'love' : trust < -t ? 'hate' : 'neutral';
+    this.afraid = afraid; // доля тех, кто сейчас боится руки (для честной фразы)
 
     // Кандидаты: [ключ, {icon, build}]
     let pool = MOOD_SHAPES[this.mood].map(k => [k, SHAPES[k]]);
@@ -488,6 +487,11 @@ class HiveMind {
    */
   phrase() {
     if (this.shape.meaning) return MEANING_PHRASES[this.shape.meaning];
+    // Эта фраза — только когда она правда: больше половины популяции
+    // действительно видит руку «как яд» и обходит её (см. Creature.updateBrain)
+    if (this.mood === 'hate' && this.afraid >= CONFIG.hand.avoidShare && Math.random() < 0.5) {
+      return 'Они держатся от ваших рук подальше';
+    }
     const list = MOOD_PHRASES[this.mood];
     return list[Math.floor(Math.random() * list.length)];
   }

@@ -11,6 +11,7 @@ class World {
     this.height = height;
     this.food = [];       // [{x, y, phase}]
     this.poison = [];     // [{x, y, phase}]
+    this.hand = null;     // {x, y} — рука Создателя (курсор / палец), если она сейчас в мире
     this.creatures = [];  // [Creature]
 
     this.climate = new Climate();  // сезоны и температура

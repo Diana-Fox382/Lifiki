@@ -40,6 +40,7 @@ class UI {
       uiToggle: $('ui-toggle'),
       zoomPill: $('zoom-pill'),
       extinct: $('extinct'),
+      trust: $('stat-trust'),
       genesis: $('genesis'),
       genesisText: $('genesis-text'),
       reseedBtn: $('btn-reseed'),
@@ -232,6 +233,7 @@ class UI {
     this.el.food.textContent = stats.food;
     this.el.poison.textContent = stats.poison;
     this.el.reserve.textContent = `${stats.lifeReserve} / ${stats.lifeReserveMax}`;
+    this.el.trust.textContent = UI.trustLabel(stats.hand.trust, stats.hand.afraid);
     const d = stats.dna;
     this.el.dnaRadius.textContent = `${d.baseRadius.toFixed(1)} px`;
     this.el.dnaVision.textContent = `${Math.round(d.visionRadius)} px`;
@@ -283,6 +285,19 @@ class UI {
   hideBanner() {
     clearTimeout(this.bannerTimer);
     this.el.banner.classList.remove('visible');
+  }
+
+  /** Доверие к руке словами: «+0.42 · тянутся к вам» (one — про одно существо). */
+  static trustLabel(trust, afraid = 0, one = false) {
+    const t = CONFIG.hand.moodThreshold;
+    const num = `${trust >= 0 ? '+' : '−'}${Math.abs(trust).toFixed(2)}`;
+    const [loves, fears, unknown, watches] = one
+      ? ['тянется к вам', 'боится рук', 'ещё не знает вас', 'присматривается']
+      : ['тянутся к вам', 'боятся рук', 'ещё не знают вас', 'присматриваются'];
+    const word = trust > t ? loves
+      : afraid >= CONFIG.hand.avoidShare || trust < -t ? fears
+      : Math.abs(trust) < 0.05 ? unknown : watches;
+    return `${num} · ${word}`;
   }
 
   showTooltip(x, y, html) {
