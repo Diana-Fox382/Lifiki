@@ -1,0 +1,356 @@
+/*
+ * style.css — оформление интерфейса.
+ * Главная фишка — Glassmorphism: полупрозрачный фон + размытие того,
+ * что под панелью (backdrop-filter: blur).
+ */
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --text: #eef1ff;
+  --text-dim: rgba(238, 241, 255, 0.65);
+  --accent: #ff7fb0;
+  --accent-2: #8fd3ff;
+  --food: #7dffb0;
+  --poison: #ff4d6d;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f1426;
+  color: var(--text);
+  font-family: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Холст на весь экран */
+#world {
+  position: fixed;
+  inset: 0;
+  display: block;
+  touch-action: none; /* чтобы на телефоне можно было гладить пальцем без прокрутки */
+}
+
+/* ---------- Стекло ---------- */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* ---------- Панель статистики ---------- */
+.panel {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  width: 270px;
+  padding: 18px;
+  z-index: 10;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+/* Маленький логотип-чернушка */
+.logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #3b3b4a, #050508 70%);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.6), 0 0 18px rgba(190, 210, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.logo-eye {
+  width: 10px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 55% 55%, #000 0 30%, #fff 32%);
+  animation: blink 5s infinite;
+}
+
+@keyframes blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  97% { transform: scaleY(0.1); }
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #ffffff, var(--accent-2), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.stat-label {
+  color: var(--text-dim);
+}
+
+.stat-label small,
+.stat-value small {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.stat-value {
+  font-weight: 800;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stat-sub {
+  font-size: 12px;
+}
+
+.stat-sub .stat-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.dot-food { background: var(--food); box-shadow: 0 0 8px var(--food); }
+.dot-poison { background: var(--poison); box-shadow: 0 0 8px var(--poison); }
+
+/* ---------- Осознанность ---------- */
+.awareness {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.awareness-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.awareness-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.awareness-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 12px rgba(255, 127, 176, 0.6);
+  transition: width 0.4s ease;
+}
+
+.awareness-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+/* ---------- Кнопки ---------- */
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 16px rgba(143, 211, 255, 0.25);
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn.active {
+  background: rgba(255, 127, 176, 0.35);
+  border-color: rgba(255, 127, 176, 0.6);
+}
+
+.btn-wide {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* ---------- Подсказка ---------- */
+.hint {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- Баннер «Сеанса связи» ---------- */
+.banner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translate(-50%, -150%);
+  padding: 12px 24px;
+  font-size: 17px;
+  font-weight: 800;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s;
+  background: linear-gradient(90deg, rgba(143, 211, 255, 0.18), rgba(255, 127, 176, 0.22));
+  white-space: nowrap;
+}
+
+.banner.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
+/* ---------- Всплывающая карточка существа ---------- */
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 30;
+}
+
+.tooltip.visible {
+  opacity: 1;
+}
+
+/* ---------- Значок паузы ---------- */
+.pause-badge {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.8);
+  padding: 16px 32px;
+  font-size: 26px;
+  font-weight: 800;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 15;
+}
+
+.pause-badge.visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* ---------- Мобильные экраны ---------- */
+@media (max-width: 600px) {
+  .panel {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    padding: 12px;
+  }
+  .awareness-hint,
+  .stat-sub {
+    display: none;
+  }
+  .hint {
+    font-size: 11px;
+    white-space: normal;
+    width: calc(100% - 16px);
+    text-align: center;
+    bottom: 8px;
+  }
+  .banner {
+    font-size: 14px;
+    white-space: normal;
+    width: calc(100% - 16px);
+    text-align: center;
+  }
+}

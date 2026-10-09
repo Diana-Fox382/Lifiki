@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lifiki — симулятор искусственной жизни</title>
+  <!-- Шрифт Nunito (если нет интернета — подставится системный) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Холст, на котором рисуется весь мир -->
+  <canvas id="world"></canvas>
+
+  <!-- Панель статистики (glassmorphism) -->
+  <aside class="panel glass">
+    <header class="panel-header">
+      <div class="logo" aria-hidden="true">
+        <span class="logo-eye"></span><span class="logo-eye"></span>
+      </div>
+      <div>
+        <h1>Lifiki</h1>
+        <p class="subtitle">нейроэволюция пушистиков</p>
+      </div>
+    </header>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="stat-label">Популяция</span>
+        <span class="stat-value" id="stat-population">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Поколение <small>(сред. / макс.)</small></span>
+        <span class="stat-value"><span id="stat-generation">0</span> <small>/ <span id="stat-generation-max">0</span></small></span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">👑 Возраст рекордсмена</span>
+        <span class="stat-value" id="stat-record">0 с</span>
+      </div>
+      <div class="stat stat-sub">
+        <span class="stat-label">Старейший из живых</span>
+        <span class="stat-value" id="stat-record-alive">0 с</span>
+      </div>
+      <div class="stat stat-sub">
+        <span class="stat-label"><i class="dot dot-food"></i>Еда &nbsp;<i class="dot dot-poison"></i>Яд</span>
+        <span class="stat-value"><span id="stat-food">0</span> / <span id="stat-poison">0</span></span>
+      </div>
+    </div>
+
+    <div class="awareness">
+      <div class="awareness-head">
+        <span>🧠 Осознанность</span>
+        <span id="awareness-text">0%</span>
+      </div>
+      <div class="awareness-track"><div class="awareness-bar" id="awareness-bar"></div></div>
+      <p class="awareness-hint">Когда среднее поколение превысит 10, существа начнут выходить на связь.</p>
+    </div>
+
+    <div class="controls">
+      <button class="btn" id="btn-pause">⏸ Пауза</button>
+      <button class="btn" id="btn-speed">⏩ x1</button>
+    </div>
+    <button class="btn btn-wide" id="btn-call" title="Запустить сеанс связи прямо сейчас (для проверки)">💬 Позвать на связь</button>
+  </aside>
+
+  <!-- Подсказка внизу экрана -->
+  <div class="hint glass">🖐 Зажми мышку на пушистике — погладь его · <kbd>Пробел</kbd> — пауза</div>
+
+  <!-- Баннер «Сеанса связи» -->
+  <div class="banner glass" id="banner"></div>
+
+  <!-- Всплывающая карточка существа -->
+  <div class="tooltip glass" id="tooltip"></div>
+
+  <!-- Значок паузы -->
+  <div class="pause-badge glass" id="pause-badge">⏸ Пауза</div>
+
+  <!--
+    Скрипты подключаются ПО ПОРЯДКУ: каждый следующий использует классы
+    из предыдущих. Мы не используем ES-модули специально, чтобы игра
+    запускалась простым двойным кликом по index.html (без сервера).
+  -->
+  <script src="config.js"></script>
+  <script src="utils.js"></script>
+  <script src="neural.js"></script>
+  <script src="particles.js"></script>
+  <script src="assets.js"></script>
+  <script src="creature.js"></script>
+  <script src="world.js"></script>
+  <script src="hivemind.js"></script>
+  <script src="ui.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
