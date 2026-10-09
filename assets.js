@@ -4,8 +4,8 @@
  * 1. Пытается загрузить creature.png из папки с игрой.
  *    Если файл есть — существа рисуются этой картинкой
  *    (картинка должна «смотреть» вправо →).
- * 2. Если файла нет (по умолчанию) — рисуем милого чёрного пушистика-чернушку
- *    прямо кодом: тело, шевелящаяся шерсть, глазки, моргание.
+ * 2. Если файла нет (по умолчанию) — рисуем милую чернушку прямо кодом:
+ *    чёрное ядро и большие глаза (здесь) + шерсть с физикой (fur.js).
  * 3. Заранее «запекает» спрайты (еда, яд, тело, свечение, фон) в невидимые
  *    canvas'ы — так рисование каждого кадра становится очень быстрым.
  */
@@ -50,19 +50,36 @@ class AssetManager {
 
   /** «Запекаем» все спрайты один раз при старте. */
   buildSprites() {
-    // --- Тело чернушки: чёрный шар с лёгким бликом -----------------------
+    // --- Ядро чернушки: чёрный шар с бликом и пушистым «подшёрстком» -----
+    // Сотни коротких ворсинок по краю рисуются ОДИН раз в спрайт, поэтому
+    // край выглядит мохнатым, но не стоит ни капли FPS.
     {
-      const c = AssetManager.makeCanvas(64, 64);
+      const size = 128, c0 = size / 2, R = 46;
+      const c = AssetManager.makeCanvas(size, size);
       const g = c.getContext('2d');
-      const grad = g.createRadialGradient(24, 22, 2, 32, 32, 31);
+      g.lineCap = 'round';
+      for (let i = 0; i < 260; i++) {
+        const a = Math.random() * TAU;
+        const r0 = R * randRange(0.7, 0.95);
+        const r1 = R * randRange(1.05, 1.35);
+        const bend = randRange(-0.25, 0.25);
+        g.strokeStyle = Math.random() < 0.85 ? '#060609' : '#2a2a36';
+        g.lineWidth = randRange(1.5, 3);
+        g.beginPath();
+        g.moveTo(c0 + Math.cos(a) * r0, c0 + Math.sin(a) * r0);
+        g.lineTo(c0 + Math.cos(a + bend) * r1, c0 + Math.sin(a + bend) * r1);
+        g.stroke();
+      }
+      const grad = g.createRadialGradient(c0 - 14, c0 - 16, 3, c0, c0, R);
       grad.addColorStop(0, '#3b3b4a');
       grad.addColorStop(0.45, '#15151d');
       grad.addColorStop(1, '#050508');
       g.fillStyle = grad;
       g.beginPath();
-      g.arc(32, 32, 31, 0, TAU);
+      g.arc(c0, c0, R, 0, TAU);
       g.fill();
       this.sprites.body = c;
+      this.sprites.bodyScale = size / 2 / R; // во сколько раз спрайт больше самого шара
     }
 
     // --- Мягкое свечение под существом (чтобы чёрное было видно на тёмном) -
@@ -176,88 +193,45 @@ class AssetManager {
     ctx.drawImage(this.sprites.halo, x - s / 2, y - s / 2, s, s);
   }
 
-  /**
-   * Рисует существо в ЕГО СОБСТВЕННЫХ координатах:
-   * (0,0) — центр, ось X смотрит «вперёд» (куда оно движется).
-   * Поворот и масштаб уже применены снаружи (см. Creature.draw).
-   */
-  drawCreature(ctx, creature, r, time, speedRatio) {
-    if (this.creatureImage) {
-      ctx.drawImage(this.creatureImage, -r * 1.5, -r * 1.5, r * 3, r * 3);
-      return;
-    }
-    this.drawFur(ctx, creature, r, time, speedRatio);
-    ctx.drawImage(this.sprites.body, -r * 0.95, -r * 0.95, r * 1.9, r * 1.9);
-    this.drawEyes(ctx, creature, r);
+  /** Режим creature.png: картинка уже повёрнута и масштабирована снаружи. */
+  drawCreatureImage(ctx, r) {
+    ctx.drawImage(this.creatureImage, -r * 1.5, -r * 1.5, r * 3, r * 3);
   }
 
   /**
-   * Симуляция шерсти: каждая шерстинка — изогнутая линия от тела наружу.
-   * Кончик шерстинки качается по синусоиде (у каждой своя фаза и скорость),
-   * а при движении шерсть «сдувает» назад. При поглаживании — дрожит от мурчания.
+   * Чёрное круглое ядро чернушки. Рисуется в координатах ядра:
+   * (0,0) — центр, деформация (дыхание, мурчание…) уже применена снаружи.
    */
-  drawFur(ctx, creature, r, time, speedRatio) {
-    const purr = creature.isPetted;
-    const drag = speedRatio * r * 0.35;
-
-    // Слой 1: густая тёмная шерсть
-    ctx.beginPath();
-    for (const s of creature.fur) {
-      const wave = Math.sin(time * s.speed + s.phase) * 0.22
-        + (purr ? Math.sin(time * 32 + s.phase) * 0.12 : 0);
-      const baseX = Math.cos(s.angle) * r * 0.55;
-      const baseY = Math.sin(s.angle) * r * 0.55;
-      const tipR = r * (0.95 + s.length * 0.3);
-      const tipA = s.angle + wave + s.curl;
-      const tipX = Math.cos(tipA) * tipR - drag;
-      const tipY = Math.sin(tipA) * tipR;
-      const ctrlA = s.angle + wave * 0.4;
-      const ctrlX = Math.cos(ctrlA) * r * 0.85 - drag * 0.4;
-      const ctrlY = Math.sin(ctrlA) * r * 0.85;
-      ctx.moveTo(baseX, baseY);
-      ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
-    }
-    ctx.strokeStyle = '#08080c';
-    ctx.lineWidth = Math.max(1.1, r * 0.13);
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    // Слой 2: тонкие светлые кончики — дают «блеск» шерсти
-    ctx.beginPath();
-    for (let i = 0; i < creature.fur.length; i += 2) {
-      const s = creature.fur[i];
-      const wave = Math.sin(time * s.speed + s.phase) * 0.22;
-      const tipR = r * (0.9 + s.length * 0.28);
-      const tipA = s.angle + wave + s.curl;
-      ctx.moveTo(Math.cos(s.angle) * r * 0.8, Math.sin(s.angle) * r * 0.8);
-      ctx.lineTo(Math.cos(tipA) * tipR - drag, Math.sin(tipA) * tipR);
-    }
-    ctx.strokeStyle = 'rgba(120, 125, 160, 0.35)';
-    ctx.lineWidth = Math.max(0.6, r * 0.06);
-    ctx.stroke();
+  drawSootCore(ctx, coreR) {
+    const s = coreR * this.sprites.bodyScale; // учитываем ворсинки за краем шара
+    ctx.drawImage(this.sprites.body, -s, -s, s * 2, s * 2);
   }
 
-  /** Глазки: моргают, смотрят на еду, сонные при голоде, «^ ^» при поглаживании. */
-  drawEyes(ctx, creature, r) {
-    const ex = r * 0.34;   // глаза ближе к «носу» (вперёд по оси X)
-    const ey = r * 0.36;   // расстояние между глазами
-    const erx = r * 0.27;
+  /**
+   * Большие милые глаза. Не вращаются вместе с движением — всегда смотрят на зрителя.
+   *   • зрачки смещаются в сторону движения (creature.pupilX / pupilY);
+   *   • моргание; при голоде — сонные полузакрытые глаза;
+   *   • при поглаживании — счастливые «^ ^» и румянец.
+   */
+  drawSootEyes(ctx, creature, r) {
+    const ex = r * 0.31;   // расстояние от центра до каждого глаза по X
+    const ey = -r * 0.06;  // глаза чуть выше центра
+    const erx = r * 0.26;
     const ery = r * 0.31;
 
     if (creature.isPetted) {
-      // Счастливые глазки-дужки + румянец
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(1.2, r * 0.12);
+      ctx.lineWidth = Math.max(1.2, r * 0.11);
       ctx.lineCap = 'round';
       for (const side of [-1, 1]) {
         ctx.beginPath();
-        ctx.arc(ex - erx * 0.55, side * ey, erx * 0.8, -1.1, 1.1);
+        ctx.arc(side * ex, ey + ery * 0.45, erx * 0.8, Math.PI * 1.15, Math.PI * 1.85);
         ctx.stroke();
       }
-      ctx.fillStyle = 'rgba(255, 120, 170, 0.55)';
+      ctx.fillStyle = 'rgba(255, 120, 170, 0.6)';
       for (const side of [-1, 1]) {
         ctx.beginPath();
-        ctx.ellipse(r * 0.1, side * r * 0.66, r * 0.14, r * 0.2, 0, 0, TAU);
+        ctx.ellipse(side * r * 0.47, ey + r * 0.33, r * 0.13, r * 0.08, 0, 0, TAU);
         ctx.fill();
       }
       return;
@@ -267,24 +241,26 @@ class AssetManager {
     if (creature.energy < CONFIG.energy.max * 0.25) open *= 0.55; // голодный — сонный
     open = Math.max(0.08, open);
 
-    const lookX = Math.cos(creature.lookAngle) * erx * 0.38;
-    const lookY = Math.sin(creature.lookAngle) * ery * 0.38;
+    const shift = CONFIG.soot.pupilShift;
+    const lookX = creature.pupilX * erx * shift;
+    const lookY = creature.pupilY * ery * shift;
 
     for (const side of [-1, 1]) {
-      const cy = side * ey;
+      const cx = side * ex;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.ellipse(ex, cy, erx, ery * open, 0, 0, TAU);
+      ctx.ellipse(cx, ey, erx, ery * open, 0, 0, TAU);
       ctx.fill();
       if (open > 0.3) {
-        const px = ex + lookX, py = cy + lookY * open;
+        const px = cx + lookX, py = ey + lookY * open;
         ctx.fillStyle = '#000000';
         ctx.beginPath();
-        ctx.arc(px, py, r * 0.14, 0, TAU);
+        ctx.arc(px, py, r * 0.13, 0, TAU);
         ctx.fill();
+        // Блик в глазу — делает взгляд «живым»
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(px + r * 0.04, py - r * 0.05, r * 0.045, 0, TAU);
+        ctx.arc(px + r * 0.04, py - r * 0.05, r * 0.042, 0, TAU);
         ctx.fill();
       }
     }

@@ -219,10 +219,15 @@ class Simulation {
   // ===========================================================================
   //  РИСОВАНИЕ
   // ===========================================================================
-  render() {
+  /**
+   * @param {number} frameDt — реальные секунды с прошлого кадра. Шерсть и дыхание
+   *                           живут по реальному времени, поэтому чернушки дышат даже на паузе.
+   */
+  render(frameDt) {
     const ctx = this.ctx;
     const { width: w, height: h } = this.world;
     const time = this.time;
+    const now = Date.now();
 
     this.assets.drawBackground(ctx, w, h);
     for (const f of this.world.food) this.assets.drawFood(ctx, f, time);
@@ -231,7 +236,10 @@ class Simulation {
     this.hive.drawOverlay(ctx, w, h);
 
     const champion = this.world.oldestCreature();
-    for (const c of this.world.creatures) c.draw(ctx, this.assets, time, c === champion);
+    for (const c of this.world.creatures) {
+      c.animateVisuals(frameDt, now);
+      c.draw(ctx, this.assets, time, c === champion, now);
+    }
 
     this.particles.draw(ctx);
   }
@@ -279,7 +287,7 @@ class Simulation {
     if (!this.paused) {
       for (let i = 0; i < this.speed; i++) this.step(dt);
     }
-    this.render();
+    this.render(dt);
     this.updateHover();
 
     // Интерфейс обновляем 4 раза в секунду — чаще не нужно

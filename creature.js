@@ -9,8 +9,18 @@
  *       1) обычный     — думает нейросетью, ищет еду, избегает яд;
  *       2) petting     — его гладят: стоит, мурчит, пускает сердечки;
  *       3) общение     — во время «Сеанса связи» летит к своей точке фигуры.
- *   • анимации: покачивание при ходьбе, «пульс» при поедании,
- *     вытягивание при делении, мурчание, моргание.
+ *   • анимации: подпрыгивание при ходьбе, «пульс» при поедании,
+ *     вытягивание при делении, мурчание, моргание, дыхание;
+ *   • шерсть с физикой (SootFur из fur.js).
+ *
+ * Как устроена отрисовка чернушки:
+ *   1) computeBody() собирает все деформации ядра (дыхание, ходьба, деление,
+ *      мурчание) в одну матрицу 2×2 — «как сейчас сжато/растянуто ядро»;
+ *   2) по этой матрице шерсть (fur.js) находит корни волосков и считает физику;
+ *   3) рисуем: волоски → ядро → глаза.
+ * Ядро и глаза НЕ поворачиваются (глаза всегда смотрят на зрителя, как у
+ * настоящих сусуватари), а направление движения видно по зрачкам, по шерсти,
+ * которая тянется назад, и по сплющиванию вдоль вектора скорости.
  */
 let creatureIdCounter = 0;
 
@@ -49,28 +59,19 @@ class Creature {
     this.walkPhase = randRange(0, 10);
     this.eatScale = 1;            // 1.3 сразу после еды, затем плавно → 1
     this.stretch = 0;             // 1 сразу после деления, затем плавно → 0
-    this.purrPhase = 0;
     this.appear = 0;              // 0 → 1 анимация появления
     this.blink = 0;
     this.blinkLeft = 0;
     this.blinkTimer = randRange(1, 5);
-    this.lookAngle = 0;           // куда смотрят зрачки (относительно направления)
-    this.fur = Creature.createFur(CONFIG.creature.furStrands);
-  }
 
-  /** Случайная «причёска»: у каждого пушистика шерсть своя. */
-  static createFur(count) {
-    const fur = [];
-    for (let i = 0; i < count; i++) {
-      fur.push({
-        angle: (i / count) * TAU + randRange(-0.08, 0.08),
-        length: randRange(0.3, 1.1),
-        phase: randRange(0, TAU),
-        speed: randRange(2, 5),
-        curl: randRange(-0.3, 0.3),
-      });
-    }
-    return fur;
+    // --- Внешность чернушки ---
+    // Сдвиг фазы дыхания: толпа дышит вразнобой, а не как армия роботов
+    this.breathOffset = randRange(0, CONFIG.breathing.cycle);
+    this.pupilX = 0;              // смещение зрачков (−1..1) в сторону движения
+    this.pupilY = 0;
+    this.fur = new SootFur();
+    // Текущее состояние ядра (переиспользуем один объект, чтобы не мусорить память)
+    this.body = { cx: x, cy: y, r: 10, coreR: 8, m00: 1, m01: 0, m10: 0, m11: 1, breath: 0, purring: false };
   }
 
   // --- Удобные «свойства» ---------------------------------------------------
@@ -112,7 +113,10 @@ class Creature {
     // Движение + замкнутый мир (вышел справа — появился слева)
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    const beforeX = this.x, beforeY = this.y;
     world.wrap(this);
+    // Перескочили через край — переносим и шерсть, иначе она «растянется» через весь экран
+    if (this.x !== beforeX || this.y !== beforeY) this.fur.shift(this.x - beforeX, this.y - beforeY);
 
     // Поворот по вектору движения через Math.atan2 (плавно, чтобы не дёргался)
     if (this.speed > 3) {
@@ -154,9 +158,6 @@ class Creature {
     this.vx = Math.cos(this.angle) * speed;
     this.vy = Math.sin(this.angle) * speed;
 
-    // Зрачки смотрят на еду
-    this.lookAngle = lerpAngle(this.lookAngle, food ? clamp(foodAngle, -1.2, 1.2) : 0, Math.min(1, dt * 6));
-
     // 5) ТРАТА ЭНЕРГИИ: базовая + за скорость (квадратично — быстро бегать дорого)
     const speedRatio = speed / c.maxSpeed;
     this.energy -= (e.baseCost + e.moveCost * speedRatio * speedRatio) * dt;
@@ -183,8 +184,6 @@ class Creature {
     const damp = Math.max(0, 1 - dt * 12);
     this.vx *= damp;
     this.vy *= damp;
-    this.purrPhase += dt * 32;
-    this.lookAngle = 0;
     this.energy = Math.min(CONFIG.energy.max, this.energy + CONFIG.energy.petPerSecond * dt);
 
     this.heartTimer -= dt;
@@ -221,7 +220,6 @@ class Creature {
     }
     this.vx += steerX * dt;
     this.vy += steerY * dt;
-    this.lookAngle = lerpAngle(this.lookAngle, 0, Math.min(1, dt * 6));
   }
 
   /** Таймеры анимаций. */
@@ -268,7 +266,7 @@ class Creature {
     child.vy = Math.sin(child.angle) * 70;
     child.drawAngle = this.drawAngle; // вытягиваются вдоль одной оси
     child.appear = 1;
-    child.fur = this.fur.map(s => ({ ...s, phase: randRange(0, TAU) })); // похож на родителя
+    child.fur = new SootFur(this.fur); // «причёска» как у родителя
 
     // Сильное вытягивание при делении
     this.stretch = 1;
@@ -278,53 +276,148 @@ class Creature {
   }
 
   // ===========================================================================
-  //  РИСОВАНИЕ
+  //  ВИЗУАЛ (вызывается каждый кадр отрисовки, даже на паузе — существа дышат)
   // ===========================================================================
-  draw(ctx, assets, time, isChampion) {
+
+  /**
+   * Собирает все деформации ядра в матрицу 2×2 (m00 m01 / m10 m11):
+   *   • дыхание      — по осям экрана: шире по X, ниже по Y;
+   *   • ходьба       — сплющивание вдоль вектора скорости (угол через Math.atan2);
+   *   • деление      — сильное вытягивание вдоль вектора скорости;
+   *   • еда/появление — равномерный масштаб;
+   *   • мурчание     — высокочастотная мелкая вибрация масштаба и позиции.
+   */
+  computeBody(now) {
+    const body = this.body;
     const r = this.radius;
     const speedRatio = Math.min(1, this.speed / CONFIG.creature.maxSpeed);
+    const purring = this.isPetted;
 
-    // Собираем масштаб по осям из нескольких анимаций.
-    // Ось X — вдоль движения, ось Y — поперёк.
+    // 1) Дыхание (асимметричный цикл 4.5 с, см. breathing.js)
+    const breath = Breathing.amount(now, this.breathOffset);
+    let bx = 1 + CONFIG.breathing.widen * breath;
+    let by = 1 - CONFIG.breathing.flatten * breath;
+
+    // 2) Деформации вдоль направления движения: hx — вдоль, hy — поперёк
+    let hx = 1, hy = 1;
+    const bob = Math.sin(this.walkPhase) * 0.07 * speedRatio;
+    hx += bob;
+    hy -= bob;
+    if (this.stretch > 0) {
+      const s = this.stretch;
+      const jelly = Math.sin((1 - s) * 18) * s * 0.2;
+      hx *= 1 + 0.9 * s * s + jelly;
+      hy *= Math.max(0.3, 1 - 0.45 * s * s - jelly * 0.5);
+    }
+
+    // 3) Мурчание: частая мелкая дрожь ядра (~30 Гц)
+    let jx = 0, jy = 0;
+    if (purring) {
+      const shake = Math.sin(now * 0.19 + this.id) * CONFIG.soot.purrCoreShake;
+      bx *= 1 + shake;
+      by *= 1 - shake;
+      jx = Math.sin(now * 0.23 + this.id * 3) * r * 0.05;
+      jy = Math.cos(now * 0.29 + this.id * 5) * r * 0.05;
+    }
+
+    // 4) Равномерный масштаб: появление «с пружинкой» и пульс после еды
+    const appear = this.appear < 1 ? Math.max(0.01, easeOutBack(this.appear)) : 1;
+    const u = appear * this.eatScale;
+
+    // Матрица «растянуть вдоль угла a»: R(a) · diag(hx, hy) · R(−a)
+    const c = Math.cos(this.drawAngle), s = Math.sin(this.drawAngle);
+    const A = hx * c * c + hy * s * s;
+    const B = (hx - hy) * c * s;
+    const D = hx * s * s + hy * c * c;
+    // …затем дыхание diag(bx, by) и общий масштаб u
+    body.m00 = A * bx * u;  body.m01 = B * by * u;
+    body.m10 = B * bx * u;  body.m11 = D * by * u;
+
+    // Лёгкое подпрыгивание при ходьбе
+    const hop = Math.abs(Math.sin(this.walkPhase * 0.5)) * r * 0.16 * speedRatio;
+    body.cx = this.x + jx;
+    body.cy = this.y + jy - hop;
+    body.r = r;
+    body.coreR = r * CONFIG.soot.coreRatio;
+    body.breath = breath;
+    body.purring = purring;
+    return body;
+  }
+
+  /** Обновляет визуальные части: деформацию ядра, зрачки, физику шерсти. */
+  animateVisuals(dt, now) {
+    const body = this.computeBody(now);
+
+    // Зрачки плавно смещаются туда, куда существо движется
+    const sp = this.speed;
+    const k = Math.min(1, sp / (CONFIG.creature.maxSpeed * 0.6));
+    const tx = sp > 1 ? (this.vx / sp) * k : 0;
+    const ty = sp > 1 ? (this.vy / sp) * k : 0;
+    const follow = Math.min(1, dt * 8);
+    this.pupilX += (tx - this.pupilX) * follow;
+    this.pupilY += (ty - this.pupilY) * follow;
+
+    this.fur.update(body, dt, now);
+  }
+
+  // ===========================================================================
+  //  РИСОВАНИЕ
+  // ===========================================================================
+  draw(ctx, assets, time, isChampion, now) {
+    const r = this.radius;
+    const appear = this.appear < 1 ? Math.max(0.01, easeOutBack(this.appear)) : 1;
+    assets.drawHalo(ctx, this.x, this.y, r * appear);
+
+    if (assets.creatureImage) this.drawImageSprite(ctx, assets);
+    else this.drawSoot(ctx, assets, now);
+
+    if (isChampion) assets.drawCrown(ctx, this.x, this.y - r * 1.7 - 6, time);
+  }
+
+  /** Процедурная чернушка: шерсть → ядро → глаза. */
+  drawSoot(ctx, assets, now) {
+    const body = this.body;
+    this.fur.draw(ctx, body, now);
+
+    ctx.save();
+    // Применяем матрицу деформации ядра (ядро не вращается, только сжимается/тянется)
+    ctx.transform(body.m00, body.m10, body.m01, body.m11, body.cx, body.cy);
+    assets.drawSootCore(ctx, body.coreR);
+    assets.drawSootEyes(ctx, this, body.r);
+    ctx.restore();
+  }
+
+  /** Режим creature.png: картинка поворачивается по вектору движения (Math.atan2). */
+  drawImageSprite(ctx, assets) {
+    const r = this.radius;
+    const speedRatio = Math.min(1, this.speed / CONFIG.creature.maxSpeed);
     let sx = 1, sy = 1, sway = 0;
 
     if (this.isPetted) {
-      // Мурчание: быстрое мягкое сжатие/растяжение
-      const p = Math.sin(this.purrPhase) * 0.08;
+      const p = Math.sin(Date.now() * 0.19) * 0.06;
       sx *= 1 + p;
       sy *= 1 - p;
     } else {
-      // Покачивание при ходьбе: сплющивание + раскачивание из стороны в сторону
       const bob = Math.sin(this.walkPhase) * 0.07 * speedRatio;
       sx *= 1 + bob;
       sy *= 1 - bob;
       sway = Math.sin(this.walkPhase * 0.5) * 0.18 * speedRatio;
     }
-
-    // Пульс после еды: scale(1.3) → 1
     sx *= this.eatScale;
     sy *= this.eatScale;
-
-    // Вытягивание при делении + «желейное» дрожание
     if (this.stretch > 0) {
       const s = this.stretch;
       const jelly = Math.sin((1 - s) * 18) * s * 0.2;
       sx *= 1 + 0.9 * s * s + jelly;
       sy *= Math.max(0.3, 1 - 0.45 * s * s - jelly * 0.5);
     }
-
-    // Появление «с пружинкой»
     const appear = this.appear < 1 ? Math.max(0.01, easeOutBack(this.appear)) : 1;
-
-    assets.drawHalo(ctx, this.x, this.y, r * appear);
 
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.drawAngle + sway);
     ctx.scale(sx * appear, sy * appear);
-    assets.drawCreature(ctx, this, r, time, speedRatio);
+    assets.drawCreatureImage(ctx, r);
     ctx.restore();
-
-    if (isChampion) assets.drawCrown(ctx, this.x, this.y - r * 1.7 - 6, time);
   }
 }
