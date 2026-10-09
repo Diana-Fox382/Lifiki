@@ -38,6 +38,7 @@ class Simulation {
     for (let i = 0; i < CONFIG.population.initial; i++) this.spawnCreature();
 
     this.bindInput();
+    this.ui.bindSettings();
     this.ui.bind({
       onPause: () => this.togglePause(),
       onSpeed: () => {
@@ -236,7 +237,14 @@ class Simulation {
     const time = this.time;
     const now = Date.now();
 
-    this.assets.drawBackground(ctx, w, h);
+    const climate = this.world.climate;
+    climate.animate(frameDt, w, h);
+
+    // Фон (летом — с маревом) и сезонный оттенок
+    climate.drawBackground(ctx, this.assets, w, h);
+    climate.drawTint(ctx, w, h);
+    SootFur.sheen = climate.furSheen(); // иней на кончиках шерсти зимой, тёплый блик летом
+
     for (const f of this.world.food) this.assets.drawFood(ctx, f, time);
     for (const p of this.world.poison) this.assets.drawPoison(ctx, p, time);
 
@@ -249,6 +257,7 @@ class Simulation {
       c.draw(ctx, this.assets, time, c === champion, now);
     }
 
+    climate.drawSnow(ctx);
     this.particles.draw(ctx);
   }
 
@@ -269,29 +278,57 @@ class Simulation {
         `<br><span class="tt-head">🧬 ДНК</span>` +
         `<br>Ядро: ${d.baseRadius.toFixed(1)} px · Глаз: ${d.numEyes}` +
         `<br>Шерсть: ${d.hairCount} × ${d.hairLength.toFixed(0)} px` +
-        `<br>Зрение: ${Math.round(d.visionRadius)} px` +
+        `<br>Зрение: ${Math.round(d.visionRadius)} px · обзор ${Math.round(t.fov * 180 / Math.PI)}°` +
         `<br><span class="tt-head">⚙️ Тело</span>` +
         `<br>Скорость: ${Math.round(t.maxSpeed)} px/с` +
         `<br>Трата: ${t.idleCost.toFixed(1)}/с в покое, +${t.moveCost.toFixed(1)}/с на бегу` +
+        `<br>Погода: ${UI.thermalLabel(c)}` +
         `<br>${state}`);
     } else {
       this.ui.hideTooltip();
     }
   }
 
-  /** Круг зрения существа под курсором — видно, насколько далеко оно «видит». */
+  /**
+   * Поле зрения существа под курсором: полупрозрачный сектор
+   * (радиус = ген visionRadius, угол = по числу глаз).
+   * То, что существо видит прямо сейчас, обведено кружком.
+   */
   drawVision(ctx) {
     const c = this.hovered;
     if (!c || c.dead) return;
+    const R = c.dna.visionRadius;
+    const half = c.traits.fov / 2;
+
     ctx.save();
     ctx.beginPath();
-    ctx.arc(c.x, c.y, c.dna.visionRadius, 0, TAU);
-    ctx.fillStyle = 'rgba(143, 211, 255, 0.05)';
+    if (half >= Math.PI - 1e-6) {
+      ctx.arc(c.x, c.y, R, 0, TAU);              // 4 глаза — круг на 360°
+    } else {
+      ctx.moveTo(c.x, c.y);
+      ctx.arc(c.x, c.y, R, c.angle - half, c.angle + half);
+      ctx.closePath();
+    }
+    const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, R);
+    g.addColorStop(0, 'rgba(143, 211, 255, 0.14)');
+    g.addColorStop(1, 'rgba(143, 211, 255, 0.03)');
+    ctx.fillStyle = g;
     ctx.fill();
     ctx.setLineDash([6, 8]);
     ctx.strokeStyle = 'rgba(143, 211, 255, 0.45)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Что существо видит сейчас: еда — зелёный кружок, яд — красный
+    ctx.lineWidth = 2;
+    for (const [item, color] of [[c.seenFood, '#7dffb0'], [c.seenPoison, '#ff4d6d']]) {
+      if (!item) continue;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(item.x, item.y, 14, 0, TAU);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -309,6 +346,8 @@ class Simulation {
       poison: world.poison.length,
       awareness: this.hive.awareness(world),
       dna: world.averageDNA(),
+      avgFur: world.creatures.reduce((s, c) => s + c.traits.fur, 0) / Math.max(1, world.creatures.length),
+      climate: world.climate,
     };
   }
 

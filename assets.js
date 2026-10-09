@@ -95,6 +95,19 @@ class AssetManager {
       this.sprites.halo = c;
     }
 
+    // --- Оранжевое «марево» вокруг перегревшегося существа (летом) ---------
+    {
+      const c = AssetManager.makeCanvas(64, 64);
+      const g = c.getContext('2d');
+      const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255, 120, 40, 0.5)');
+      grad.addColorStop(0.5, 'rgba(255, 90, 30, 0.18)');
+      grad.addColorStop(1, 'rgba(255, 90, 30, 0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 64, 64);
+      this.sprites.heat = c;
+    }
+
     // --- Еда: светящийся зелёный шарик с бликом --------------------------
     {
       const c = AssetManager.makeCanvas(48, 48);
@@ -186,6 +199,14 @@ class AssetManager {
     ctx.rotate(time * 0.6 + item.phase); // яд медленно вращается — выглядит угрожающе
     ctx.drawImage(this.sprites.poison, -s / 2, -s / 2, s, s);
     ctx.restore();
+  }
+
+  /** Перегрев: пульсирующее оранжевое свечение, сила 0..1. */
+  drawHeatGlow(ctx, x, y, r, strength, now) {
+    const s = r * 2.6 * (1 + Math.sin(now * 0.006) * 0.08);
+    ctx.globalAlpha = Math.min(1, strength);
+    ctx.drawImage(this.sprites.heat, x - s / 2, y - s / 2, s, s);
+    ctx.globalAlpha = 1;
   }
 
   drawHalo(ctx, x, y, r) {

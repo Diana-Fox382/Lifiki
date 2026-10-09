@@ -60,6 +60,11 @@ class Creature {
     this.commTarget = null;     // {x, y} — точка фигуры во время «Сеанса связи»
     this.sepX = 0;              // сила «расталкивания» от соседей (считает HiveMind)
     this.sepY = 0;
+    this.seenFood = null;       // что существо видит прямо сейчас (для подсветки)
+    this.seenPoison = null;
+    this.thermalCost = 0;       // доп. трата энергии из-за погоды (в секунду)
+    this.coldStress = 0;        // 0..1 — насколько мёрзнет
+    this.heatStress = 0;        // 0..1 — насколько перегревается
 
     // --- Анимации ---
     this.drawAngle = this.angle;  // угол, под которым существо РИСУЕТСЯ (= atan2 скорости)
@@ -93,9 +98,11 @@ class Creature {
   get isPetted() { return this.pettingTimer > 0; }
   get isCommunicating() { return this.commTarget !== null; }
 
-  /** Можно ли делиться прямо сейчас. */
+  /** Можно ли делиться: сыт, взрослый и не занят (не гладят, не на связи). */
   canDivide() {
-    return !this.dead && this.energy >= this.maxEnergy && !this.isPetted && !this.isCommunicating;
+    const maturity = CONFIG.evolution.maturityAge / CONFIG.evolution.tempo;
+    return !this.dead && this.energy >= this.maxEnergy && this.age >= maturity
+      && !this.isPetted && !this.isCommunicating;
   }
 
   /** Вызывается при клике/удержании мышки на существе. */
@@ -113,6 +120,10 @@ class Creature {
   // ===========================================================================
   update(dt, world, particles) {
     this.age += dt;
+    // Погода: сколько сейчас стоит жизнь в этой шубке и насколько холодно (для дрожи)
+    this.thermalCost = world.climate.thermalCost(this.traits);
+    this.coldStress = world.climate.coldStress(this.traits);
+    this.heatStress = world.climate.heatStress(this.traits);
     this.updateAnimations(dt);
 
     if (this.isPetted) this.updatePetting(dt, particles);
@@ -148,19 +159,25 @@ class Creature {
     const c = CONFIG.creature;
     const t = this.traits;
     const vision = this.dna.visionRadius;
+    const halfFov = t.fov / 2;
+    const reach = this.radius + CONFIG.world.eatPadding;
 
-    // 1) ОРГАНЫ ЧУВСТВ: ближайшая еда и яд, но только в радиусе зрения (ген visionRadius)
-    const food = world.findNearest(world.food, this.x, this.y, vision);
-    const poison = world.findNearest(world.poison, this.x, this.y, vision);
-    const foodAngle = food ? wrapAngle(Math.atan2(food.dy, food.dx) - this.angle) : 0;
-    const poisonAngle = poison ? wrapAngle(Math.atan2(poison.dy, poison.dx) - this.angle) : 0;
+    // 1) ОРГАНЫ ЧУВСТВ: видим только то, что в радиусе зрения (ген visionRadius)
+    //    И внутри конуса обзора (зависит от числа глаз, ген numEyes).
+    const foodScan = world.scan(world.food, this.x, this.y, vision, this.angle, halfFov, reach);
+    const poisonScan = world.scan(world.poison, this.x, this.y, vision, this.angle, halfFov, reach);
+    const food = foodScan.seen;
+    const poison = poisonScan.seen;
+    this.seenFood = food ? food.item : null;      // для подсветки при наведении курсора
+    this.seenPoison = poison ? poison.item : null;
 
-    // 2) ВХОДЫ НЕЙРОСЕТИ — все значения примерно в диапазоне [-1, 1]
+    // 2) ВХОДЫ НЕЙРОСЕТИ. Если объект не виден — оба его входа = 0 («ничего нет»).
+    //    Угол: −1…1 (слева/справа), близость: 1 = вплотную, →0 = на краю зрения.
     const inputs = [
-      foodAngle / Math.PI,                         // где еда: слева (-) / справа (+)
-      food ? food.dist / vision : 1,               // как далеко еда (1 = не видно)
-      poisonAngle / Math.PI,                       // где яд
-      poison ? poison.dist / vision : 1,           // как далеко яд
+      food ? wrapAngle(Math.atan2(food.dy, food.dx) - this.angle) / Math.PI : 0,
+      food ? 1 - food.dist / vision : 0,
+      poison ? wrapAngle(Math.atan2(poison.dy, poison.dx) - this.angle) / Math.PI : 0,
+      poison ? 1 - poison.dist / vision : 0,
       this.energyRatio,                            // насколько я сыт
     ];
 
@@ -177,21 +194,25 @@ class Creature {
     this.vx = Math.cos(this.angle) * speed;
     this.vy = Math.sin(this.angle) * speed;
 
-    // 5) ТРАТА ЭНЕРГИИ — связана с телом (см. DNA.computeTraits):
-    //    покой (размер, шерсть-утеплитель, зрение) + движение (∝ размер² × скорость²)
+    // 5) ТРАТА ЭНЕРГИИ — связана с телом (см. DNA.computeTraits) и погодой:
+    //    покой (размер, зрение, глаза) + движение (растёт с размером и скоростью)
+    //    + климат (зимой мёрзнут лысые, летом перегреваются пушистые — seasons.js)
     const speedRatio = speed / t.maxSpeed;
-    this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio) * dt;
+    this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio + this.thermalCost) * dt;
 
-    // 6) ЕДА И ЯД: если дотянулись — съедаем
-    const reach = this.radius + CONFIG.world.eatPadding;
-    if (food && food.dist < reach) {
+    // 6) ЕДА И ЯД: съедаем то, чего касаемся (даже если не видим — например, спиной)
+    const touchFood = foodScan.touch;
+    const touchPoison = poisonScan.touch;
+    if (touchFood) {
+      const food = touchFood;
       world.removeAt(world.food, food.index);
       this.energy = Math.min(this.maxEnergy, this.energy + CONFIG.energy.food);
       this.foodEaten++;
       this.eatScale = 1.3; // резкий scale(1.3) при поедании
       particles.emitSparkles(food.item.x, food.item.y, '#7dffb0', 7, 60);
     }
-    if (poison && poison.dist < reach) {
+    if (touchPoison) {
+      const poison = touchPoison;
       world.removeAt(world.poison, poison.index);
       particles.emitSparkles(poison.item.x, poison.item.y, '#ff4d6d', 10, 80);
       this.die('poison');
@@ -272,7 +293,8 @@ class Creature {
   divide() {
     const e = CONFIG.energy;
     const b = CONFIG.brain;
-    const childBrain = this.brain.copy().mutate(b.mutationRate, b.mutationAmount);
+    const tempo = CONFIG.evolution.tempo;
+    const childBrain = this.brain.copy().mutate(Math.min(1, b.mutationRate * tempo), b.mutationAmount);
     const childDNA = this.dna.mutated();
 
     const back = this.drawAngle + Math.PI;
@@ -342,6 +364,13 @@ class Creature {
       jy = Math.cos(now * 0.29 + this.id * 5) * r * 0.05;
     }
 
+    // 3б) Дрожь от холода: мёрзнущие (лысые зимой) мелко трясутся
+    if (!purring && this.coldStress > 0.12) {
+      const sh = Math.min(1, this.coldStress) * 0.6;
+      jx += Math.sin(now * 0.33 + this.id * 7) * r * 0.06 * sh;
+      jy += Math.cos(now * 0.41 + this.id * 11) * r * 0.03 * sh;
+    }
+
     // 4) Равномерный масштаб: появление «с пружинкой» и пульс после еды
     const appear = this.appear < 1 ? Math.max(0.01, easeOutBack(this.appear)) : 1;
     const u = appear * this.eatScale;
@@ -390,6 +419,8 @@ class Creature {
     const r = this.radius;
     const appear = this.appear < 1 ? Math.max(0.01, easeOutBack(this.appear)) : 1;
     assets.drawHalo(ctx, this.x, this.y, this.visualRadius * 0.45 * appear);
+    // Летом пушистые перегреваются — вокруг них дрожит оранжевое свечение
+    if (this.heatStress > 0.1) assets.drawHeatGlow(ctx, this.x, this.y, this.visualRadius * appear, this.heatStress, now);
 
     if (assets.creatureImage) this.drawImageSprite(ctx, assets);
     else this.drawSoot(ctx, assets, now);

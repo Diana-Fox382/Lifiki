@@ -16,9 +16,10 @@
  *   • Большой  → больше запас энергии, длиннее шаг (быстрее), шире «рот»,
  *                но дороже жизнь и ОЧЕНЬ дорого движение; дольше копить на деление.
  *   • Зоркий   → видит еду и яд издалека, но мозг «жжёт калории» даже в покое.
- *   • Пушистый → шерсть греет (меньше базовая трата), но тормозит (ниже скорость).
- *   • Глаза    → чисто внешний признак: никак не влияет на выживание,
- *                поэтому меняется случайно (генетический дрейф). Интересно смотреть!
+ *   • Пушистый → тормозит (ниже скорость); зимой спасает от холода, летом перегревается
+ *                (это считает климат — seasons.js).
+ *   • Глаза    → шире поле зрения (1 глаз — узкий конус, 4 глаза — все 360°),
+ *                но каждый лишний глаз нагружает мозг (доп. трата в покое).
  */
 const DNA_GENES = {
   baseRadius:   { min: 10,  max: 25,  integer: false },
@@ -48,7 +49,7 @@ class DNA {
    * Копия с мутациями. Каждый ген с вероятностью `rate` изменяется
    * на случайные ±(обычно 10, максимум 20) %.
    */
-  mutated(rate = CONFIG.dna.mutationRate) {
+  mutated(rate = Math.min(1, CONFIG.dna.mutationRate * CONFIG.evolution.tempo)) {
     const genes = {};
     for (const [name, g] of Object.entries(DNA_GENES)) {
       let v = this[name];
@@ -83,12 +84,14 @@ class DNA {
       fur,
       // Запас энергии растёт с размером. Деление — когда запас полон.
       maxEnergy: p.energyPerSize * size,
+      // Поле зрения (радианы) — по количеству глаз
+      fov: (CONFIG.vision.fovByEyes[this.numEyes - 1] * Math.PI) / 180,
       // Длинные ноги — быстрее шаг; густая длинная шерсть — сопротивление (drag).
       maxSpeed: (p.baseSpeed * Math.sqrt(size)) / (1 + p.furDrag * fur),
       // Тяжёлым труднее разгоняться
       maxAccel: p.baseAccel / Math.sqrt(size),
-      // Трата в покое: тело (∝ размеру, шерсть греет) + мозг/зрение (∝ зрению²)
-      idleCost: p.bodyCost * size * (1 - p.furInsulation * fur) + p.visionCost * vision * vision,
+      // Трата в покое: тело (∝ размеру) + мозг/зрение (∝ дальности²) + лишние глаза
+      idleCost: p.bodyCost * size + p.visionCost * vision * vision + p.eyeCost * (this.numEyes - 1),
       // Трата на движение на полной скорости: растёт с размером быстрее, чем линейно
       moveCost: p.moveCost * Math.pow(size, p.moveSizeExp),
     };

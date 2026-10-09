@@ -59,6 +59,8 @@ body {
   top: 16px;
   left: 16px;
   width: 270px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   padding: 18px;
   z-index: 10;
 }
@@ -277,6 +279,141 @@ h1 {
   margin-top: 8px;
 }
 
+/* ---------- Настройки мира ---------- */
+.settings {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary::after { content: ' ▸'; color: var(--text-dim); }
+.settings[open] summary::after { content: ' ▾'; }
+
+.setting {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.setting span {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-dim);
+}
+
+.setting b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.setting small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  opacity: 0.8;
+  line-height: 1.3;
+}
+
+.setting input[type='range'] {
+  width: 100%;
+  margin: 4px 0 2px;
+  accent-color: var(--accent);
+}
+
+.btn-small {
+  margin-top: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* ---------- Сезон ---------- */
+.season {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 230px;
+  padding: 14px 16px;
+  z-index: 10;
+  transition: background 2s, border-color 2s;
+}
+
+.season.is-cold {
+  background: rgba(150, 200, 255, 0.12);
+  border-color: rgba(190, 225, 255, 0.35);
+}
+
+.season.is-hot {
+  background: rgba(255, 150, 90, 0.12);
+  border-color: rgba(255, 180, 120, 0.35);
+}
+
+.season-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.season-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.season-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.season-temp {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.season-track {
+  position: relative;
+  display: flex;
+  height: 8px;
+  margin: 12px 0 8px;
+  border-radius: 999px;
+  overflow: visible;
+}
+
+.seg { flex: 1; height: 100%; opacity: 0.75; }
+.seg-spring { background: #9be7a5; border-radius: 999px 0 0 999px; }
+.seg-summer { background: #ffb36b; }
+.seg-autumn { background: #d9a066; }
+.seg-winter { background: #8fc8ff; border-radius: 0 999px 999px 0; }
+
+.season-marker {
+  position: absolute;
+  top: -4px;
+  width: 4px;
+  height: 16px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.season-next,
+.season-effect,
+.season-fur {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.season-effect { color: var(--text); font-weight: 600; }
+.season-fur b { color: var(--text); }
+
 /* ---------- Подсказка ---------- */
 .hint {
   position: fixed;
@@ -370,8 +507,20 @@ kbd {
     width: auto;
     padding: 12px;
   }
+  .season {
+    top: auto;
+    bottom: 56px;
+    right: 8px;
+    width: 170px;
+    padding: 10px 12px;
+  }
+  .season-next,
+  .season-fur {
+    display: none;
+  }
   .awareness-hint,
   .dna,
+  .settings,
   .stat-sub {
     display: none;
   }

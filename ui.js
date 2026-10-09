@@ -21,6 +21,20 @@ class UI {
       dnaEyes: $('dna-eyes'),
       awarenessBar: $('awareness-bar'),
       awarenessText: $('awareness-text'),
+      seasonIcon: $('season-icon'),
+      seasonName: $('season-name'),
+      seasonTemp: $('season-temp'),
+      seasonMarker: $('season-marker'),
+      seasonNext: $('season-next'),
+      seasonEffect: $('season-effect'),
+      seasonFur: $('season-fur'),
+      setTempo: $('set-tempo'),
+      setSeason: $('set-season'),
+      setClimate: $('set-climate'),
+      valTempo: $('val-tempo'),
+      valSeason: $('val-season'),
+      valClimate: $('val-climate'),
+      resetSettings: $('btn-reset-settings'),
       pauseBtn: $('btn-pause'),
       speedBtn: $('btn-speed'),
       callBtn: $('btn-call'),
@@ -35,6 +49,81 @@ class UI {
     this.el.pauseBtn.addEventListener('click', onPause);
     this.el.speedBtn.addEventListener('click', onSpeed);
     this.el.callBtn.addEventListener('click', onCall);
+  }
+
+  // ===========================================================================
+  //  НАСТРОЙКИ МИРА (ползунки). Сохраняются в браузере (localStorage),
+  //  поэтому после перезагрузки страницы остаются такими, как вы их оставили.
+  // ===========================================================================
+  bindSettings() {
+    const KEY = 'lifiki.settings';
+    const defaults = {
+      tempo: CONFIG.evolution.tempo,
+      seasonMinutes: CONFIG.climate.seasonLength / 60,
+      climate: CONFIG.climate.strength,
+    };
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { saved = {}; }
+    const s = { ...defaults };
+    for (const k of Object.keys(defaults)) if (Number.isFinite(saved[k])) s[k] = saved[k];
+
+    const apply = () => {
+      CONFIG.evolution.tempo = s.tempo;
+      CONFIG.climate.seasonLength = s.seasonMinutes * 60;
+      CONFIG.climate.strength = s.climate;
+      this.el.setTempo.value = s.tempo;
+      this.el.setSeason.value = s.seasonMinutes;
+      this.el.setClimate.value = s.climate;
+      this.el.valTempo.textContent = `×${s.tempo}`;
+      this.el.valSeason.textContent = `${s.seasonMinutes} мин`;
+      this.el.valClimate.textContent = s.climate === 0 ? 'выкл' : `×${s.climate}`;
+      try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { /* приватный режим — не страшно */ }
+    };
+
+    this.el.setTempo.addEventListener('input', (e) => { s.tempo = +e.target.value; apply(); });
+    this.el.setSeason.addEventListener('input', (e) => { s.seasonMinutes = +e.target.value; apply(); });
+    this.el.setClimate.addEventListener('input', (e) => { s.climate = +e.target.value; apply(); });
+    this.el.resetSettings.addEventListener('click', (e) => {
+      e.preventDefault();
+      Object.assign(s, defaults);
+      apply();
+    });
+    apply();
+  }
+
+  /** Текст для карточки существа: как ему сейчас погода. */
+  static thermalLabel(c) {
+    if (c.coldStress > 0.1) return `🥶 мёрзнет (−${c.thermalCost.toFixed(1)}/с)`;
+    if (c.heatStress > 0.1) return `🥵 перегрев (−${c.thermalCost.toFixed(1)}/с)`;
+    return '😌 комфортно';
+  }
+
+  static formatClock(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  /** Карточка сезона. */
+  updateSeason(climate, avgFur) {
+    const season = climate.season;
+    this.el.seasonIcon.textContent = season.icon;
+    this.el.seasonName.textContent = season.name;
+    const c = Math.round(climate.celsius);
+    this.el.seasonTemp.textContent = `${c > 0 ? '+' : ''}${c} °C`;
+    this.el.seasonMarker.style.left = `${(climate.yearPhase * 100).toFixed(2)}%`;
+    this.el.seasonNext.textContent = `${climate.nextSeason.icon} ${climate.nextSeason.name} через ${UI.formatClock(climate.secondsToNextSeason)}`;
+
+    let effect = 'Нейтральный сезон — передышка';
+    if (CONFIG.climate.strength === 0) effect = 'Климат выключен';
+    else if (climate.cold > 0.3) effect = 'Холодно: лысые замерзают';
+    else if (climate.heat > 0.3) effect = 'Жарко: пушистые перегреваются';
+    this.el.seasonEffect.textContent = effect;
+    this.el.seasonFur.textContent = `${Math.round(avgFur * 100)}%`;
+
+    // Цвет карточки следует за температурой
+    const card = this.el.seasonIcon.closest('.season');
+    card.classList.toggle('is-cold', climate.cold > 0.3);
+    card.classList.toggle('is-hot', climate.heat > 0.3);
   }
 
   static formatAge(seconds) {
@@ -57,6 +146,7 @@ class UI {
     this.el.dnaVision.textContent = `${Math.round(d.visionRadius)} px`;
     this.el.dnaHair.textContent = `${Math.round(d.hairCount)} × ${Math.round(d.hairLength)} px`;
     this.el.dnaEyes.textContent = d.numEyes.toFixed(1);
+    this.updateSeason(stats.climate, stats.avgFur);
     this.el.awarenessBar.style.width = `${Math.round(stats.awareness * 100)}%`;
     this.el.awarenessText.textContent = stats.awareness >= 1
       ? 'Пробуждены ✨'

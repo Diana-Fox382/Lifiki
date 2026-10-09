@@ -68,11 +68,49 @@
       <p class="awareness-hint">Когда среднее поколение превысит 10, существа начнут выходить на связь.</p>
     </div>
 
+    <details class="settings" id="settings">
+      <summary>⚙️ Настройки мира</summary>
+      <label class="setting">
+        <span>Темп эволюции <b id="val-tempo">×1</b></span>
+        <input type="range" id="set-tempo" min="0.25" max="3" step="0.25" value="1">
+        <small>Шанс мутаций и скорость взросления. Меньше — медленнее, для долгих сессий.</small>
+      </label>
+      <label class="setting">
+        <span>Длина сезона <b id="val-season">8 мин</b></span>
+        <input type="range" id="set-season" min="1" max="20" step="1" value="8">
+        <small>Игровых минут на один сезон (при скорости x1).</small>
+      </label>
+      <label class="setting">
+        <span>Суровость климата <b id="val-climate">×1</b></span>
+        <input type="range" id="set-climate" min="0" max="2" step="0.1" value="1">
+        <small>0 — климата нет, 2 — зимы и лета беспощадны.</small>
+      </label>
+      <button class="btn btn-small" id="btn-reset-settings">↺ По умолчанию</button>
+    </details>
+
     <div class="controls">
       <button class="btn" id="btn-pause">⏸ Пауза</button>
       <button class="btn" id="btn-speed">⏩ x1</button>
     </div>
     <button class="btn btn-wide" id="btn-call" title="Запустить сеанс связи прямо сейчас (для проверки)">💬 Позвать на связь</button>
+  </aside>
+
+  <!-- Сезон и температура -->
+  <aside class="season glass" id="season">
+    <div class="season-top">
+      <span class="season-icon" id="season-icon">🌸</span>
+      <div class="season-text">
+        <div class="season-name" id="season-name">Весна</div>
+        <div class="season-temp" id="season-temp">+12 °C</div>
+      </div>
+    </div>
+    <div class="season-track" title="Год: весна → лето → осень → зима">
+      <span class="seg seg-spring"></span><span class="seg seg-summer"></span><span class="seg seg-autumn"></span><span class="seg seg-winter"></span>
+      <span class="season-marker" id="season-marker"></span>
+    </div>
+    <div class="season-next" id="season-next">Лето через 8:00</div>
+    <div class="season-effect" id="season-effect">Нейтральный сезон</div>
+    <div class="season-fur">🧶 Средняя шуба: <b id="season-fur">–</b></div>
   </aside>
 
   <!-- Подсказка внизу экрана -->
@@ -97,6 +135,7 @@
   <script src="neural.js"></script>
   <script src="particles.js"></script>
   <script src="dna.js"></script>
+  <script src="seasons.js"></script>
   <script src="breathing.js"></script>
   <script src="fur.js"></script>
   <script src="assets.js"></script>

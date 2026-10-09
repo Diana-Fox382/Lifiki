@@ -23,6 +23,9 @@
  * именно поэтому возникает инерция.
  */
 class SootFur {
+  /** Цвет блеска на кончиках шерсти (один на всех, меняется с сезоном — см. Climate.furSheen). */
+  static sheen = 'rgba(130, 135, 170, 0.3)';
+
   /**
    * @param {DNA} dna — количество (hairCount) и длина (hairLength, px) волосков берутся из генов.
    */
@@ -182,7 +185,7 @@ class SootFur {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
     }
-    ctx.strokeStyle = 'rgba(130, 135, 170, 0.3)';
+    ctx.strokeStyle = SootFur.sheen; // цвет задаёт климат (иней зимой, тёплый блик летом)
     ctx.lineWidth = clamp(r * 0.05, 0.6, 1.3);
     ctx.stroke();
   }

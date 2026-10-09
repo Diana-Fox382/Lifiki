@@ -13,6 +13,8 @@ class World {
     this.poison = [];     // [{x, y, phase}]
     this.creatures = [];  // [Creature]
 
+    this.climate = new Climate();  // сезоны и температура
+
     this.foodAccumulator = 0;
     this.poisonAccumulator = 0;
 
@@ -61,6 +63,7 @@ class World {
 
   /** Еда растёт постепенно (с постоянной скоростью), яд — восстанавливается. */
   update(dt) {
+    this.climate.update(dt);
     this.foodAccumulator += CONFIG.world.foodRegenPerMegapixel * this.megapixels * dt;
     while (this.foodAccumulator >= 1) {
       this.foodAccumulator -= 1;
@@ -109,6 +112,48 @@ class World {
     }
     if (bestIndex < 0) return null;
     return { item: list[bestIndex], index: bestIndex, dx: bestDx, dy: bestDy, dist: Math.sqrt(bestD2) };
+  }
+
+  /**
+   * «Осмотреться»: один проход по списку, два результата.
+   *   seen  — объект, который существо ВИДИТ и на котором держит внимание:
+   *           в радиусе зрения И внутри конуса обзора (heading ± halfFov).
+   *           Остальное для мозга не существует. Из видимых выбирается ближайший
+   *           «с поправкой на внимание»: то, что спереди, кажется в 1× дальше,
+   *           то, что сзади, — в 2× (по формуле дистанция × (1.5 − 0.5 × cos угла)).
+   *           Так широкий обзор помогает, а не сбивает с курса едой за спиной.
+   *   touch — ближайший объект на расстоянии «укуса» (в любую сторону):
+   *           съесть еду или наступить на яд можно и спиной, даже не видя их.
+   * Каждый результат: {item, index, dx, dy, dist} или null.
+   */
+  scan(list, x, y, visionRadius, heading, halfFov, reach) {
+    const w = this.width, h = this.height, hw = w / 2, hh = h / 2;
+    const allAround = halfFov >= Math.PI - 1e-6;
+    const cosH = Math.cos(heading), sinH = Math.sin(heading);
+    const cosFov = Math.cos(halfFov);
+    const vision2 = visionRadius * visionRadius;
+    let seenI = -1, seenScore = Infinity, seenDist = 0, sdx = 0, sdy = 0;
+    let touchI = -1, touchD2 = reach * reach, tdx = 0, tdy = 0;
+
+    for (let i = 0; i < list.length; i++) {
+      let dx = list[i].x - x, dy = list[i].y - y;
+      if (dx > hw) dx -= w; else if (dx < -hw) dx += w;
+      if (dy > hh) dy -= h; else if (dy < -hh) dy += h;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < touchD2) { touchD2 = d2; touchI = i; tdx = dx; tdy = dy; }
+      if (d2 < vision2) {
+        // Косинус угла между «куда смотрю» и «где объект» (без atan2 — так быстрее)
+        const d = Math.sqrt(d2) || 1e-6;
+        const cosA = (dx * cosH + dy * sinH) / d;
+        if (!allAround && cosA < cosFov) continue;      // вне конуса — не вижу
+        const score = d * (1.5 - 0.5 * cosA);           // поправка на внимание
+        if (score < seenScore) { seenScore = score; seenDist = d; seenI = i; sdx = dx; sdy = dy; }
+      }
+    }
+    return {
+      seen: seenI < 0 ? null : { item: list[seenI], index: seenI, dx: sdx, dy: sdy, dist: seenDist },
+      touch: touchI < 0 ? null : { item: list[touchI], index: touchI, dx: tdx, dy: tdy, dist: Math.sqrt(touchD2) },
+    };
   }
 
   /** Быстрое удаление: на место удаляемого ставим последний элемент. */
