@@ -42,6 +42,10 @@
         <span class="stat-label">⭐ Старейший из живых</span>
         <span class="stat-value" id="stat-record-alive">0 с</span>
       </div>
+      <div class="stat stat-sub" title="Пока существ меньше этого числа, мир сам подселяет новых. Каждое убийство вашими руками навсегда уменьшает запас на одного.">
+        <span class="stat-label">🌱 Запас жизни</span>
+        <span class="stat-value" id="stat-reserve">12 / 12</span>
+      </div>
       <div class="stat stat-sub">
         <span class="stat-label"><i class="dot dot-food"></i>Еда &nbsp;<i class="dot dot-poison"></i>Яд</span>
         <span class="stat-value"><span id="stat-food">0</span> / <span id="stat-poison">0</span></span>
@@ -124,13 +128,24 @@
   </div>
 
   <!-- Подсказка внизу экрана -->
-  <div class="hint glass">🖐 Схвати пушистика и тащи: на руках он мурчит · дотащи до еды — покормишь, до яда — погибнет<span class="desktop-only"> · <kbd>Пробел</kbd> — пауза · <kbd>H</kbd> — спрятать интерфейс</span></div>
+  <div class="hint glass">🖐 Тащи пушистика: к еде — покормишь, к яду — погибнет<span class="desktop-only"> · колёсико — зум · двойной клик — следить · <kbd>H</kbd> — скрыть</span><span class="touch-only"> · два пальца — зум · двойное касание — следить</span></div>
 
   <!-- Баннер «Сеанса связи» -->
   <div class="banner glass" id="banner"></div>
 
   <!-- Всплывающая карточка существа -->
   <div class="tooltip glass" id="tooltip"></div>
+
+  <!-- Индикатор зума: видно только при приближении; клик — вернуться к общему виду -->
+  <button class="zoom-pill" id="zoom-pill" title="Вернуться к общему виду (Esc · двойной клик по пустому месту)">🔍 ×1.0</button>
+
+  <!-- Мир опустел: появляется, только если всех уничтожили руками Создателя -->
+  <div class="extinct glass" id="extinct" role="dialog" aria-live="polite">
+    <div class="extinct-icon">🕯</div>
+    <div class="extinct-title">Мир опустел</div>
+    <p class="extinct-text">Здесь больше никто не живёт. Это сделали ваши руки.</p>
+    <button class="btn btn-wide" id="btn-reseed">🌱 Начать жизнь заново</button>
+  </div>
 
   <!-- Кнопка «спрятать/показать интерфейс» (режим чистых обоев). Клавиша H. -->
   <button class="ui-toggle" id="ui-toggle" title="Спрятать интерфейс (H)" aria-label="Спрятать интерфейс">

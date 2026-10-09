@@ -32,6 +32,66 @@ class Simulation {
     this.dragOffsetX = 0;     // за какое место схватили
     this.dragOffsetY = 0;
     this.hovered = null;      // над кем курсор (показываем круг зрения)
+
+    // «Запас жизни»: пока существ меньше этого числа, мир сам подселяет новых.
+    // Каждое убийство руками Создателя навсегда уменьшает запас на 1 — поэтому
+    // полностью вымереть мир может ТОЛЬКО от ваших рук.
+    this.lifeReserve = CONFIG.population.min;
+    this.userKills = 0;
+
+    // Камера (зум и перемещение). zoom = 1 — виден весь мир.
+    this.cam = { zoom: 1, x: 0, y: 0 };
+    this.follow = null;       // за кем следит камера (двойной клик/тап по существу)
+    this.touches = new Map(); // активные пальцы/указатели: id → {x, y}
+    this.pinch = null;        // состояние щипка двумя пальцами
+    this.pan = null;          // перетаскивание пустого места (сдвиг камеры)
+    this.lastTap = { t: 0, x: 0, y: 0 };
+  }
+
+  // ===========================================================================
+  //  КАМЕРА: зум колёсиком / щипком, перемещение, слежение за существом
+  // ===========================================================================
+
+  /** Экранная точка (CSS-пиксели) → точка мира. */
+  screenToWorld(sx, sy) {
+    return { x: this.cam.x + sx / this.cam.zoom, y: this.cam.y + sy / this.cam.zoom };
+  }
+
+  /** Не даём камере уехать за края мира и выйти за пределы зума. */
+  clampCamera() {
+    const c = this.cam, w = this.world;
+    c.zoom = clamp(c.zoom, 1, CONFIG.camera.maxZoom);
+    c.x = clamp(c.x, 0, w.width - w.width / c.zoom);
+    c.y = clamp(c.y, 0, w.height - w.height / c.zoom);
+  }
+
+  /** Зум так, чтобы точка под (sx, sy) осталась на месте (как в картах). */
+  zoomAt(sx, sy, zoom) {
+    const anchor = this.screenToWorld(sx, sy);
+    this.cam.zoom = clamp(zoom, 1, CONFIG.camera.maxZoom);
+    this.cam.x = anchor.x - sx / this.cam.zoom;
+    this.cam.y = anchor.y - sy / this.cam.zoom;
+    this.clampCamera();
+  }
+
+  /** Вернуться к общему виду (весь мир на экране). */
+  resetCamera() {
+    this.follow = null;
+    this.cam.zoom = 1;
+    this.clampCamera();
+  }
+
+  /** Плавно держим в центре существо, за которым следим. */
+  updateCamera(dt) {
+    const f = this.follow;
+    if (!f) return;
+    if (f.dead || !this.world.creatures.includes(f)) { this.follow = null; return; }
+    const c = this.cam, w = this.world;
+    const tx = f.x - w.width / c.zoom / 2, ty = f.y - w.height / c.zoom / 2;
+    const k = Math.min(1, dt * 4);
+    c.x += (tx - c.x) * k;
+    c.y += (ty - c.y) * k;
+    this.clampCamera();
   }
 
   // ===========================================================================
@@ -49,6 +109,7 @@ class Simulation {
     this.bindInput();
     this.ui.bindSettings();
     this.ui.bindVisibility();
+    this.ui.bindCamera({ onReset: () => this.resetCamera(), onReseed: () => this.reseed() });
     this.ui.bind({
       onPause: () => this.togglePause(),
       onSpeed: () => {
@@ -75,7 +136,9 @@ class Simulation {
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.dpr = dpr;
     this.world.resize(w, h);
+    if (this.cam) this.clampCamera();
     this.assets.buildBackground(w, h);
   }
 
@@ -119,9 +182,12 @@ class Simulation {
   // ===========================================================================
   bindInput() {
     const c = this.canvas;
-    const updatePos = (e) => {
+    const screenPos = (e) => {
       const rect = c.getBoundingClientRect();
-      const x = e.clientX - rect.left, y = e.clientY - rect.top;
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+    const updatePos = (e) => {
+      const { x, y } = screenPos(e);
       // Скорость указателя (сглаженная) — чтобы существо можно было «бросить»
       const t = performance.now();
       const dtMs = Math.max(1, t - this.pointer.t);
@@ -131,38 +197,106 @@ class Simulation {
       this.pointer.y = y;
       this.pointer.t = t;
     };
+    const dragTarget = () => {
+      const p = this.screenToWorld(this.pointer.x, this.pointer.y);
+      return [p.x + this.dragOffsetX, p.y + this.dragOffsetY];
+    };
 
-    // Нажали на существо — ВЗЯЛИ НА РУЧКИ (оно сразу начинает мурчать)
+    // ---- Колёсико мыши: зум к точке под курсором ----
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+      const factor = Math.exp(-e.deltaY * unit * 0.0015);
+      const { x, y } = screenPos(e);
+      if (this.follow) {
+        // Следим за существом — зумим к нему, а не к курсору
+        this.cam.zoom = clamp(this.cam.zoom * factor, 1, CONFIG.camera.maxZoom);
+        if (this.cam.zoom <= 1.001) this.follow = null;
+        this.clampCamera();
+      } else {
+        this.zoomAt(x, y, this.cam.zoom * factor);
+      }
+    }, { passive: false });
+
+    // ---- Нажатие ----
     c.addEventListener('pointerdown', (e) => {
+      const pos = screenPos(e);
+      this.touches.set(e.pointerId, pos);
+      try { c.setPointerCapture(e.pointerId); } catch (err) { /* синтетические события или старые браузеры */ }
+
+      // Второй палец → начинаем щипок (зум). Существо из «рук» отпускаем.
+      if (this.touches.size === 2) {
+        this.dragged = null;
+        this.pan = null;
+        this.startPinch();
+        return;
+      }
+      if (this.touches.size > 2) return;
+
       updatePos(e);
       this.pointer.vx = this.pointer.vy = 0;
       this.pointer.down = true;
-      c.setPointerCapture(e.pointerId);
-      const target = this.pickCreature(this.pointer.x, this.pointer.y);
+      const world = this.screenToWorld(pos.x, pos.y);
+      const target = this.pickCreature(world.x, world.y);
+
+      // Двойной клик / двойное касание: по существу — следить за ним, по пустому месту — общий вид
+      const now = performance.now();
+      const isDouble = now - this.lastTap.t < 320 && Math.hypot(pos.x - this.lastTap.x, pos.y - this.lastTap.y) < 30;
+      this.lastTap = { t: isDouble ? 0 : now, x: pos.x, y: pos.y };
+      if (isDouble) {
+        if (target) {
+          this.follow = target;
+          if (this.cam.zoom < CONFIG.camera.followZoom) this.cam.zoom = CONFIG.camera.followZoom;
+        } else {
+          this.resetCamera();
+        }
+      }
+
       if (target) {
+        // ВЗЯЛИ НА РУЧКИ (оно сразу начинает мурчать)
         this.dragged = target;
         // Запоминаем, за какое место схватили, — чтобы существо не «прыгало» центром под курсор
-        this.dragOffsetX = target.x - this.pointer.x;
-        this.dragOffsetY = target.y - this.pointer.y;
+        this.dragOffsetX = target.x - world.x;
+        this.dragOffsetY = target.y - world.y;
         target.pet(CONFIG.petting.clickDuration); // даже короткий клик даёт помурчать
+      } else if (this.cam.zoom > 1.001) {
+        // Пустое место при зуме — двигаем камеру
+        this.pan = { sx: pos.x, sy: pos.y, cx: this.cam.x, cy: this.cam.y };
       }
     });
 
-    // Тащим — существо жёстко следует за курсором
+    // ---- Движение ----
     c.addEventListener('pointermove', (e) => {
+      if (this.touches.has(e.pointerId)) this.touches.set(e.pointerId, screenPos(e));
+      if (this.pinch) { this.updatePinch(); return; }
       updatePos(e);
       this.pointer.inside = true;
-      if (this.dragged) this.dragTo(this.pointer.x + this.dragOffsetX, this.pointer.y + this.dragOffsetY);
+      if (this.dragged) {
+        this.dragTo(...dragTarget()); // существо жёстко следует за курсором
+      } else if (this.pan && this.pointer.down) {
+        this.follow = null;
+        this.cam.x = this.pan.cx - (this.pointer.x - this.pan.sx) / this.cam.zoom;
+        this.cam.y = this.pan.cy - (this.pointer.y - this.pan.sy) / this.cam.zoom;
+        this.clampCamera();
+      }
     });
 
-    // Отпустили. Если резко дёрнули мышкой — существо можно «бросить».
-    const release = () => {
+    // ---- Отпустили. Если резко дёрнули мышкой — существо можно «бросить». ----
+    const release = (e) => {
+      this.touches.delete(e.pointerId);
+      if (this.pinch) {
+        if (this.touches.size < 2) this.pinch = null;
+        if (this.touches.size === 0) this.pointer.down = false;
+        return;
+      }
       const d = this.dragged;
       if (d && !d.dead) {
-        const speed = Math.hypot(this.pointer.vx, this.pointer.vy);
+        // скорость указателя — в экранных px/с, переводим в мировые
+        const vx = this.pointer.vx / this.cam.zoom, vy = this.pointer.vy / this.cam.zoom;
+        const speed = Math.hypot(vx, vy);
         if (speed > CONFIG.petting.throwMinSpeed) {
           const s = Math.min(speed, d.maxSpeed * 1.5);
-          d.angle = Math.atan2(this.pointer.vy, this.pointer.vx);
+          d.angle = Math.atan2(vy, vx);
           d.vx = Math.cos(d.angle) * s;
           d.vy = Math.sin(d.angle) * s;
           d.pettingTimer = 0; // полетел — уже не мурчит
@@ -170,6 +304,7 @@ class Simulation {
       }
       this.pointer.down = false;
       this.dragged = null;
+      this.pan = null;
     };
     c.addEventListener('pointerup', release);
     c.addEventListener('pointercancel', release);
@@ -182,8 +317,40 @@ class Simulation {
       if (e.code === 'Space') {
         e.preventDefault();
         this.togglePause();
+      } else if (e.code === 'Escape' || e.code === 'Digit0') {
+        this.resetCamera();
+      } else if (e.key === '+' || e.key === '=') {
+        this.zoomAt(this.world.width / 2, this.world.height / 2, this.cam.zoom * 1.25);
+      } else if (e.key === '-') {
+        this.zoomAt(this.world.width / 2, this.world.height / 2, this.cam.zoom / 1.25);
+        if (this.cam.zoom <= 1.001) this.follow = null;
       }
     });
+  }
+
+  /** Начало щипка: запоминаем расстояние между пальцами и точку мира под их серединой. */
+  startPinch() {
+    const [a, b] = [...this.touches.values()];
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    this.pinch = {
+      dist: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)),
+      zoom: this.cam.zoom,
+      anchor: this.screenToWorld(mid.x, mid.y),
+    };
+  }
+
+  /** Щипок: зум по расстоянию между пальцами, а середина пальцев «держит» точку мира (можно и двигать). */
+  updatePinch() {
+    const pts = [...this.touches.values()];
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const dist = Math.max(10, Math.hypot(a.x - b.x, a.y - b.y));
+    this.follow = null;
+    this.cam.zoom = clamp(this.pinch.zoom * (dist / this.pinch.dist), 1, CONFIG.camera.maxZoom);
+    this.cam.x = this.pinch.anchor.x - mid.x / this.cam.zoom;
+    this.cam.y = this.pinch.anchor.y - mid.y / this.cam.zoom;
+    this.clampCamera();
   }
 
   /**
@@ -208,8 +375,11 @@ class Simulation {
       c.x = fromX + (dx * i) / steps;
       c.y = fromY + (dy * i) / steps;
       if (c.checkContacts(w, this.particles)) {
-        // Яд! Существо погибло прямо в руках Создателя — карма резко падает
+        // Яд! Существо погибло прямо в руках Создателя — карма резко падает,
+        // а «запас жизни» мира навсегда уменьшается (см. lifeReserve)
         this.addKarma(CONFIG.karma.kill);
+        this.userKills++;
+        this.lifeReserve = Math.max(0, this.lifeReserve - 1);
         this.dragged = null;
         this.removeDead();
         return;
@@ -259,7 +429,8 @@ class Simulation {
     t.pet(CONFIG.petting.holdRefresh);
     this.addKarma(CONFIG.karma.petPerSecond * dt); // гладим — карма медленно растёт
     // Держим под курсором (и проверяем, не выросла ли еда прямо под ним)
-    this.dragTo(this.pointer.x + this.dragOffsetX, this.pointer.y + this.dragOffsetY);
+    const p = this.screenToWorld(this.pointer.x, this.pointer.y);
+    this.dragTo(p.x + this.dragOffsetX, p.y + this.dragOffsetY);
   }
 
   // ===========================================================================
@@ -290,9 +461,11 @@ class Simulation {
     this.removeDead();
     world.creatures.push(...born);
 
-    // Не даём миру вымереть
+    // Не даём миру вымереть САМОМУ: подселяем, пока существ меньше «запаса жизни».
+    // Запас уменьшают только убийства руками Создателя — так что полное вымирание
+    // возможно лишь по вашей воле.
     this.respawnTimer -= dt;
-    if (world.creatures.length < CONFIG.population.min && this.respawnTimer <= 0) {
+    if (world.creatures.length < this.lifeReserve && this.respawnTimer <= 0) {
       const c = this.spawnCreature();
       this.particles.emitSparkles(c.x, c.y, '#c9d6ff', 10, 60);
       this.respawnTimer = CONFIG.population.respawnInterval;
@@ -300,6 +473,22 @@ class Simulation {
 
     this.language.record(world.creatures, dt);
     this.particles.update(dt);
+
+    // Мир опустел (это возможно только когда запас жизни исчерпан вашими руками)
+    this.ui.showExtinct(world.creatures.length === 0 && this.lifeReserve === 0);
+  }
+
+  /** «Начать жизнь заново» после полного вымирания. */
+  reseed() {
+    this.lifeReserve = CONFIG.population.min;
+    this.userKills = 0;
+    this.karma = 0; // новая жизнь ничего не помнит о прошлом Создателе
+    const initial = Math.min(CONFIG.population.initial, this.world.maxPopulation);
+    for (let i = 0; i < initial; i++) {
+      const c = this.spawnCreature();
+      this.particles.emitSparkles(c.x, c.y, '#c9ffd8', 10, 60);
+    }
+    this.ui.showExtinct(false);
   }
 
   // ===========================================================================
@@ -318,6 +507,11 @@ class Simulation {
     const climate = this.world.climate;
     climate.animate(frameDt, w, h);
 
+    // Камера: всё, что ниже, рисуется в координатах МИРА с учётом зума и сдвига
+    this.updateCamera(frameDt);
+    const z = this.cam.zoom * this.dpr;
+    ctx.setTransform(z, 0, 0, z, -this.cam.x * z, -this.cam.y * z);
+
     // Фон (летом — с маревом) и сезонный оттенок
     climate.drawBackground(ctx, this.assets, w, h);
     climate.drawTint(ctx, w, h);
@@ -335,8 +529,11 @@ class Simulation {
       c.draw(ctx, this.assets, time, c === champion, now);
     }
 
-    climate.drawSnow(ctx);
     this.particles.draw(ctx);
+
+    // Снег падает «на экран», а не в мир — рисуем его без зума
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    climate.drawSnow(ctx);
     this.logo.render(frameDt, now);
   }
 
@@ -344,9 +541,11 @@ class Simulation {
   updateHover() {
     this.hovered = null;
     if (!this.pointer.inside) return;
-    const c = this.pickCreature(this.pointer.x, this.pointer.y);
+    const wp = this.screenToWorld(this.pointer.x, this.pointer.y);
+    const c = this.pickCreature(wp.x, wp.y);
     this.hovered = c;
-    this.canvas.style.cursor = c ? (this.pointer.down ? 'grabbing' : 'grab') : 'default';
+    this.canvas.style.cursor = c ? (this.pointer.down ? 'grabbing' : 'grab')
+      : (this.pan ? 'grabbing' : this.cam.zoom > 1.001 ? 'move' : 'default');
     if (c) {
       const d = c.dna, t = c.traits;
       const energy = Math.round(c.energyRatio * 100);
@@ -444,6 +643,8 @@ class Simulation {
       avgFur: world.creatures.reduce((s, c) => s + c.traits.fur, 0) / Math.max(1, world.creatures.length),
       climate: world.climate,
       language: this.language.summary(),
+      lifeReserve: this.lifeReserve,
+      lifeReserveMax: CONFIG.population.min,
     };
   }
 
@@ -463,6 +664,7 @@ class Simulation {
 
     // Интерфейс обновляем 4 раза в секунду — чаще не нужно
     this.uiTimer -= dt;
+    this.ui.updateZoom(this.cam.zoom, !!this.follow);
     if (this.uiTimer <= 0) {
       if (!this.ui.hidden) this.ui.update(this.stats());
       this.uiTimer = 0.25;

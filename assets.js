@@ -54,7 +54,7 @@ class AssetManager {
     // Сотни коротких ворсинок по краю рисуются ОДИН раз в спрайт, поэтому
     // край выглядит мохнатым, но не стоит ни капли FPS.
     {
-      const size = 128, c0 = size / 2, R = 46;
+      const size = 256, c0 = size / 2, R = 92; // крупно — чтобы при зуме не было «мыла»
       const c = AssetManager.makeCanvas(size, size);
       const g = c.getContext('2d');
       g.lineCap = 'round';
@@ -64,13 +64,13 @@ class AssetManager {
         const r1 = R * randRange(1.05, 1.35);
         const bend = randRange(-0.25, 0.25);
         g.strokeStyle = Math.random() < 0.85 ? '#060609' : '#2a2a36';
-        g.lineWidth = randRange(1.5, 3);
+        g.lineWidth = randRange(3, 6);
         g.beginPath();
         g.moveTo(c0 + Math.cos(a) * r0, c0 + Math.sin(a) * r0);
         g.lineTo(c0 + Math.cos(a + bend) * r1, c0 + Math.sin(a + bend) * r1);
         g.stroke();
       }
-      const grad = g.createRadialGradient(c0 - 14, c0 - 16, 3, c0, c0, R);
+      const grad = g.createRadialGradient(c0 - 28, c0 - 32, 6, c0, c0, R);
       grad.addColorStop(0, '#3b3b4a');
       grad.addColorStop(0.45, '#15151d');
       grad.addColorStop(1, '#050508');
@@ -110,8 +110,9 @@ class AssetManager {
 
     // --- Еда: светящийся зелёный шарик с бликом --------------------------
     {
-      const c = AssetManager.makeCanvas(48, 48);
+      const c = AssetManager.makeCanvas(96, 96); // 2× — чётко при зуме
       const g = c.getContext('2d');
+      g.scale(2, 2);
       const glow = g.createRadialGradient(24, 24, 0, 24, 24, 24);
       glow.addColorStop(0, 'rgba(120, 255, 170, 0.9)');
       glow.addColorStop(0.3, 'rgba(70, 230, 130, 0.45)');
@@ -131,8 +132,9 @@ class AssetManager {
 
     // --- Яд: красная колючая звёздочка -----------------------------------
     {
-      const c = AssetManager.makeCanvas(48, 48);
+      const c = AssetManager.makeCanvas(96, 96); // 2× — чётко при зуме
       const g = c.getContext('2d');
+      g.scale(2, 2);
       const glow = g.createRadialGradient(24, 24, 0, 24, 24, 24);
       glow.addColorStop(0, 'rgba(255, 90, 110, 0.85)');
       glow.addColorStop(0.35, 'rgba(230, 40, 80, 0.35)');

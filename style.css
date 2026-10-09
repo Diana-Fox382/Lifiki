@@ -538,6 +538,63 @@ body.ui-hidden .ui-toggle:hover { opacity: 0.9; }
 body.ui-hidden .ui-toggle .icon-eye { display: none; }
 body.ui-hidden .ui-toggle .icon-eye-off { display: block; }
 
+/* ---------- Индикатор зума ---------- */
+.zoom-pill {
+  position: fixed;
+  right: 56px;
+  bottom: 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 40;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, visibility 0.3s;
+}
+
+.zoom-pill.visible { opacity: 0.75; visibility: visible; }
+.zoom-pill.visible:hover { opacity: 1; }
+body.ui-hidden .zoom-pill { opacity: 0; visibility: hidden; }
+
+/* ---------- Мир опустел ---------- */
+.extinct {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(320px, calc(100% - 32px));
+  transform: translate(-50%, -50%) scale(0.9);
+  padding: 24px;
+  text-align: center;
+  z-index: 50;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.8s, transform 0.8s, visibility 0.8s;
+}
+
+.extinct.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.extinct-icon { font-size: 34px; }
+.extinct-title { margin-top: 6px; font-size: 22px; font-weight: 800; }
+.extinct-text { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+.touch-only { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .touch-only { display: inline; }
+  .desktop-only { display: none; }
+}
+
 /* ---------- Подсказка ---------- */
 .hint {
   position: fixed;
@@ -679,6 +736,10 @@ kbd {
   .ui-toggle {
     right: 10px;
     bottom: 12px;
+  }
+  .zoom-pill {
+    right: 8px;
+    bottom: 54px;
   }
   /* Звёздочка висит над старейшим из живых — эта строка нужна и на телефоне */
   .stat-sub.stat-alive {

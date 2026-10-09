@@ -38,6 +38,10 @@ class UI {
       lexiconRows: $('lexicon-rows'),
       lexiconSilence: $('lexicon-silence'),
       uiToggle: $('ui-toggle'),
+      zoomPill: $('zoom-pill'),
+      extinct: $('extinct'),
+      reseedBtn: $('btn-reseed'),
+      reserve: $('stat-reserve'),
       pauseBtn: $('btn-pause'),
       speedBtn: $('btn-speed'),
       callBtn: $('btn-call'),
@@ -68,6 +72,26 @@ class UI {
       if (e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey) toggle();
     });
     apply();
+  }
+
+  /** Кнопка-индикатор зума и экран «Мир опустел». */
+  bindCamera({ onReset, onReseed }) {
+    this.el.zoomPill.addEventListener('click', onReset);
+    this.el.reseedBtn.addEventListener('click', onReseed);
+    this.lastZoomText = '';
+  }
+
+  /** Показываем «🔍 ×2.4» только когда приблизились (📌 — камера следит за существом). */
+  updateZoom(zoom, following) {
+    const visible = zoom > 1.01 || following;
+    this.el.zoomPill.classList.toggle('visible', visible);
+    if (!visible) return;
+    const text = `🔍 ×${zoom.toFixed(1)}${following ? ' · 📌' : ''}`;
+    if (text !== this.lastZoomText) { this.el.zoomPill.textContent = text; this.lastZoomText = text; }
+  }
+
+  showExtinct(show) {
+    this.el.extinct.classList.toggle('visible', show);
   }
 
   /** Интерфейс спрятан? (тогда не тратим время на обновление невидимых цифр) */
@@ -196,6 +220,7 @@ class UI {
     this.el.recordAlive.textContent = UI.formatAge(stats.championAge);
     this.el.food.textContent = stats.food;
     this.el.poison.textContent = stats.poison;
+    this.el.reserve.textContent = `${stats.lifeReserve} / ${stats.lifeReserveMax}`;
     const d = stats.dna;
     this.el.dnaRadius.textContent = `${d.baseRadius.toFixed(1)} px`;
     this.el.dnaVision.textContent = `${Math.round(d.visionRadius)} px`;
