@@ -4,8 +4,10 @@
  * Когда среднее поколение популяции превышает CONFIG.comm.minAvgGeneration,
  * у существ появляется «осознанность». Примерно раз в минуту запускается
  * Communication Event:
- *   1) gather — все существа бросают еду и летят к своей точке фигуры
- *               (сердце / смайлик / «HI»);
+ *   1) gather — все существа бросают еду и летят к своей точке фигуры.
+ *               Фигура зависит от КАРМЫ Создателя (см. chooseShape):
+ *               любовь → сердце/смайлик/цветок…, ненависть → череп/крест/⚠…,
+ *               нейтрально → геометрия или слово их собственного языка;
  *   2) hold   — несколько секунд держат фигуру, пуская сердечки;
  *   3) конец  — разлетаются в разные стороны и живут дальше.
  *
@@ -24,11 +26,33 @@ function arcPolyline(cx, cy, r, from, to, segments) {
   return pts;
 }
 
-const HIVE_SHAPES = [
-  {
-    title: '❤ Сердце',
+/** Замкнутый многоугольник из точек [[x, y], ...]. */
+function closedPoly(points) {
+  const pts = points.map(([x, y]) => ({ x, y }));
+  pts.push({ ...pts[0] });
+  return pts;
+}
+
+/** Звезда с n лучами (внешний радиус 1, внутренний inner). */
+function starPolyline(n, inner) {
+  const pts = [];
+  for (let i = 0; i < n * 2; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / n;
+    const r = i % 2 === 0 ? 1 : inner;
+    pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+  }
+  return closedPoly(pts);
+}
+
+/**
+ * Библиотека фигур. Каждая фигура — набор ломаных в координатах −1…1.
+ * icon — что показывается в баннере («Они говорят: 🤍»).
+ */
+const SHAPES = {
+  // ---------- Симпатия ----------
+  heart: {
+    icon: '🤍',
     build() {
-      // Классическая параметрическая кривая сердца
       const pts = [];
       for (let i = 0; i <= 90; i++) {
         const t = (i / 90) * TAU;
@@ -39,32 +63,149 @@ const HIVE_SHAPES = [
       return [pts];
     },
   },
-  {
-    title: '☺ Смайлик',
+  smile: {
+    icon: '🙂',
     build() {
       return [
-        arcPolyline(0, 0, 1, 0, TAU, 64),                          // лицо
-        arcPolyline(-0.36, -0.3, 0.13, 0, TAU, 14),                 // левый глаз
-        arcPolyline(0.36, -0.3, 0.13, 0, TAU, 14),                  // правый глаз
-        arcPolyline(0, 0.02, 0.58, Math.PI * 0.15, Math.PI * 0.85, 24), // улыбка
+        arcPolyline(0, 0, 1, 0, TAU, 64),
+        arcPolyline(-0.36, -0.3, 0.13, 0, TAU, 14),
+        arcPolyline(0.36, -0.3, 0.13, 0, TAU, 14),
+        arcPolyline(0, 0.02, 0.58, Math.PI * 0.15, Math.PI * 0.85, 24),
       ];
     },
   },
-  {
-    title: '👋 «HI»',
+  flower: {
+    icon: '🌸',
+    build() {
+      // 5 лепестков: «роза» r = |cos(2.5θ)| + серединка
+      const petals = [];
+      for (let i = 0; i <= 160; i++) {
+        const a = (i / 160) * TAU;
+        const r = 0.3 + 0.7 * Math.abs(Math.cos(2.5 * a));
+        petals.push({ x: Math.cos(a - Math.PI / 2) * r, y: Math.sin(a - Math.PI / 2) * r });
+      }
+      return [petals, arcPolyline(0, 0, 0.16, 0, TAU, 12)];
+    },
+  },
+  star: { icon: '⭐', build: () => [starPolyline(5, 0.42)] },
+  hi: {
+    icon: '👋',
     build() {
       const p = (x, y) => ({ x: x + 0.05, y });
       return [
-        [p(-0.85, -0.8), p(-0.85, 0.8)],   // H: левая палочка
-        [p(-0.25, -0.8), p(-0.25, 0.8)],   // H: правая палочка
-        [p(-0.85, 0), p(-0.25, 0)],        // H: перекладина
-        [p(0.5, -0.8), p(0.5, 0.8)],       // I: палочка
-        [p(0.22, -0.8), p(0.78, -0.8)],    // I: верхняя засечка
-        [p(0.22, 0.8), p(0.78, 0.8)],      // I: нижняя засечка
+        [p(-0.85, -0.8), p(-0.85, 0.8)], [p(-0.25, -0.8), p(-0.25, 0.8)], [p(-0.85, 0), p(-0.25, 0)],
+        [p(0.5, -0.8), p(0.5, 0.8)], [p(0.22, -0.8), p(0.78, -0.8)], [p(0.22, 0.8), p(0.78, 0.8)],
       ];
     },
   },
-];
+
+  // ---------- Ненависть / страх ----------
+  skull: {
+    icon: '💀',
+    build() {
+      // Череп: купол с челюстью одним контуром и две большие глазницы
+      // (мелкие детали вроде зубов при 30–50 существах всё равно не читаются)
+      const cranium = arcPolyline(0, -0.2, 0.85, Math.PI * 0.82, Math.PI * 2.18, 40);
+      const l = cranium[0], r = cranium[cranium.length - 1];
+      const jaw = [r, { x: 0.45, y: 0.5 }, { x: 0.45, y: 0.85 }, { x: -0.45, y: 0.85 }, { x: -0.45, y: 0.5 }, l];
+      return [
+        cranium.concat(jaw),
+        arcPolyline(-0.33, -0.1, 0.24, 0, TAU, 16),
+        arcPolyline(0.33, -0.1, 0.24, 0, TAU, 16),
+      ];
+    },
+  },
+  cross: {
+    icon: '✖️',
+    build: () => [
+      [{ x: -0.85, y: -0.85 }, { x: 0.85, y: 0.85 }],
+      [{ x: 0.85, y: -0.85 }, { x: -0.85, y: 0.85 }],
+    ],
+  },
+  danger: {
+    icon: '⚠️',
+    build: () => [
+      closedPoly([[0, -0.95], [0.95, 0.75], [-0.95, 0.75]]),
+      [{ x: 0, y: -0.42 }, { x: 0, y: 0.22 }],
+      arcPolyline(0, 0.45, 0.07, 0, TAU, 8),
+    ],
+  },
+  frown: {
+    icon: '☹️',
+    build() {
+      return [
+        arcPolyline(0, 0, 1, 0, TAU, 64),
+        arcPolyline(-0.36, -0.3, 0.13, 0, TAU, 14),
+        arcPolyline(0.36, -0.3, 0.13, 0, TAU, 14),
+        arcPolyline(0, 0.75, 0.5, Math.PI * 1.2, Math.PI * 1.8, 20), // дуга вверх — грусть
+      ];
+    },
+  },
+  lightning: {
+    icon: '⚡',
+    build: () => [closedPoly([[0.15, -1], [-0.45, 0.1], [-0.02, 0.1], [-0.2, 1], [0.45, -0.15], [0.02, -0.15]])],
+  },
+
+  // ---------- Нейтральная геометрия ----------
+  circle: { icon: '⭕', build: () => [arcPolyline(0, 0, 1, 0, TAU, 64)] },
+  triangle: { icon: '🔺', build: () => [closedPoly([[0, -1], [0.95, 0.7], [-0.95, 0.7]])] },
+  square: { icon: '⬜', build: () => [closedPoly([[-0.85, -0.85], [0.85, -0.85], [0.85, 0.85], [-0.85, 0.85]])] },
+  spiral: {
+    icon: '🌀',
+    build() {
+      const pts = [];
+      for (let i = 0; i <= 120; i++) {
+        const t = (i / 120) * Math.PI * 6;
+        const r = 0.08 + (0.92 * t) / (Math.PI * 6);
+        pts.push({ x: Math.cos(t) * r, y: Math.sin(t) * r });
+      }
+      return [pts];
+    },
+  },
+  infinity: {
+    icon: '♾️',
+    build() {
+      const pts = [];
+      for (let i = 0; i <= 100; i++) {
+        const t = (i / 100) * TAU;
+        const d = 1 + Math.sin(t) * Math.sin(t);
+        pts.push({ x: Math.cos(t) / d, y: (Math.sin(t) * Math.cos(t)) / d * 1.2 });
+      }
+      return [pts];
+    },
+  },
+};
+
+/** Фигуры-«слова» их собственного языка (см. language.js): та же форма, что в облачке речи. */
+const WORD_SHAPES = {
+  triangle: () => SHAPES.triangle.build(),
+  square: () => SHAPES.square.build(),
+  circle: () => SHAPES.circle.build(),
+  wave: () => {
+    const pts = [];
+    for (let i = 0; i <= 80; i++) {
+      const x = -1 + (2 * i) / 80;
+      pts.push({ x, y: Math.sin(x * Math.PI * 1.5) * 0.45 });
+    }
+    return [pts];
+  },
+};
+
+/** Наборы фигур по настроению (карма Создателя). */
+const MOOD_SHAPES = {
+  love: ['heart', 'smile', 'flower', 'star', 'hi'],
+  hate: ['skull', 'cross', 'danger', 'frown', 'lightning'],
+  neutral: ['circle', 'triangle', 'square', 'spiral', 'infinity'],
+};
+
+/** Общая длина набора ломаных (в единицах фигуры). */
+function polylineLength(polylines) {
+  let total = 0;
+  for (const poly of polylines) {
+    for (let i = 1; i < poly.length; i++) total += Math.hypot(poly[i].x - poly[i - 1].x, poly[i].y - poly[i - 1].y);
+  }
+  return total || 1;
+}
 
 /** Равномерно расставляет n точек вдоль набора ломаных. */
 function samplePolylines(polylines, n) {
@@ -92,7 +233,14 @@ function samplePolylines(polylines, n) {
 }
 
 class HiveMind {
-  constructor() {
+  /**
+   * @param {function} getMood — возвращает {karma, lexicon}: карму Создателя
+   *                             и сводку словаря (чтобы выбрать фигуру).
+   */
+  constructor(getMood = () => ({ karma: 0, lexicon: null })) {
+    this.getMood = getMood;
+    this.mood = 'neutral';        // 'love' | 'hate' | 'neutral' — настроение текущего сеанса
+    this.lastShapeKey = null;
     this.active = false;
     this.phase = null;            // 'gather' | 'hold'
     this.timer = 0;
@@ -128,7 +276,7 @@ class HiveMind {
     if (this.phase === 'gather' && this.timer >= CONFIG.comm.gatherTime) {
       this.phase = 'hold';
       this.timer = 0;
-      ui.showBanner(`✨ Они говорят: ${this.shape.title}`);
+      ui.showBanner(`Они говорят: ${this.shape.icon}`);
     }
 
     if (this.phase === 'hold') {
@@ -138,11 +286,16 @@ class HiveMind {
         t.x = t.baseX + Math.sin(time * 3 + i * 0.7) * 1.5;
         t.y = t.baseY + Math.cos(time * 2.5 + i * 0.5) * 1.5;
       });
+      // Частицы по настроению: любовь — сердечки, ненависть — сажа и красные искры
       this.heartTimer -= dt;
       if (this.heartTimer <= 0 && this.participants.length > 0) {
         this.heartTimer = 0.08;
         const c = this.participants[Math.floor(Math.random() * this.participants.length)];
-        particles.emitHeart(c.x, c.y - c.radius);
+        if (this.mood === 'love') particles.emitHeart(c.x, c.y - c.radius);
+        else if (this.mood === 'hate') {
+          particles.emitSoot(c.x, c.y, c.radius * 0.6);
+          particles.emitSparkles(c.x, c.y, '#ff4d6d', 3, 50);
+        } else particles.emitSparkles(c.x, c.y, '#c9d6ff', 3, 40);
       }
       if (this.timer >= CONFIG.comm.holdTime) this.end(world, particles, ui);
     }
@@ -153,12 +306,19 @@ class HiveMind {
     const creatures = world.creatures.filter(c => !c.dead);
     if (creatures.length < 5) return false;
 
-    this.shape = HIVE_SHAPES[this.shapeIndex % HIVE_SHAPES.length];
-    this.shapeIndex++;
+    this.shape = this.chooseShape();
 
-    const size = Math.min(world.width, world.height) * CONFIG.comm.shapeScale;
+    // Размер фигуры подстраивается под число существ: точки должны идти
+    // примерно через comm.spacing px — тогда контур читается, а существа не слипаются.
+    const polylines = this.shape.build();
+    const minSide = Math.min(world.width, world.height);
+    // Шаг — не меньше comm.spacing и не меньше «размера» среднего существа (с шерстью)
+    const avgVisual = creatures.reduce((a, c) => a + c.visualRadius, 0) / creatures.length;
+    const spacing = Math.max(CONFIG.comm.spacing, avgVisual * 1.25);
+    const size = clamp((creatures.length * spacing) / polylineLength(polylines),
+      minSide * CONFIG.comm.minShapeScale, minSide * CONFIG.comm.maxShapeScale);
     const cx = world.width / 2, cy = world.height / 2;
-    const targets = samplePolylines(this.shape.build(), creatures.length).map(p => {
+    const targets = samplePolylines(polylines, creatures.length).map(p => {
       const x = cx + p.x * size, y = cy + p.y * size;
       return { x, y, baseX: x, baseY: y };
     });
@@ -194,12 +354,48 @@ class HiveMind {
       c.vx = Math.cos(c.angle) * s;
       c.vy = Math.sin(c.angle) * s;
     }
-    particles.emitSparkles(world.width / 2, world.height / 2, '#ffd6f0', 40, 260);
+    const burst = { love: '#ffd6f0', hate: '#ff4d6d', neutral: '#c9d6ff' }[this.mood];
+    particles.emitSparkles(world.width / 2, world.height / 2, burst, 40, 260);
     this.participants = [];
     this.active = false;
     this.phase = null;
     this.cooldown = CONFIG.comm.interval;
     ui.hideBanner();
+  }
+
+  /**
+   * Выбор фигуры по карме Создателя:
+   *   карма > 0.4  — любовь: сердце, смайлик, цветок, звезда, «HI»;
+   *   карма < −0.4 — ненависть/страх: череп, крест, знак опасности, грустный смайлик,
+   *                  молния, а если в их языке есть слово «опасность» — это слово;
+   *   иначе        — нейтрально: случайная геометрия ИЛИ случайное слово
+   *                  их собственного языка (чем чаще слово звучит, тем вероятнее).
+   * Одна и та же фигура два раза подряд не повторяется.
+   */
+  chooseShape() {
+    const { karma, lexicon } = this.getMood();
+    const t = CONFIG.karma.moodThreshold;
+    this.mood = karma > t ? 'love' : karma < -t ? 'hate' : 'neutral';
+
+    // Кандидаты: [ключ, {icon, build}]
+    let pool = MOOD_SHAPES[this.mood].map(k => [k, SHAPES[k]]);
+    const words = lexicon ? lexicon.words.filter(w => w.share > 0.03) : [];
+    const asWord = (w) => [`word:${w.word.id}`, { icon: w.word.glyph, build: WORD_SHAPES[w.word.id] }];
+
+    if (this.mood === 'hate') {
+      // Их собственное слово «опасность» (если эволюция его придумала) — самый сильный протест
+      const dangerWord = words.find(w => w.meaning && w.meaning.context === 'poison');
+      if (dangerWord) pool.push(asWord(dangerWord), asWord(dangerWord)); // вдвое вероятнее
+    } else if (this.mood === 'neutral' && words.length > 0 && Math.random() < 0.5) {
+      // Слово их языка, вероятность — по частоте употребления
+      let r = Math.random() * words.reduce((a, w) => a + w.share, 0);
+      for (const w of words) { r -= w.share; if (r <= 0) { pool = [asWord(w)]; break; } }
+    }
+
+    const fresh = pool.filter(([k]) => k !== this.lastShapeKey);
+    const [key, shape] = (fresh.length ? fresh : pool)[Math.floor(Math.random() * (fresh.length || pool.length))];
+    this.lastShapeKey = key;
+    return shape;
   }
 
   /** Separation: существа отталкиваются от слишком близких соседей. */

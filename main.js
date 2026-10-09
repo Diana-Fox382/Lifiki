@@ -12,7 +12,10 @@ class Simulation {
     this.ui = new UI();
     this.world = new World(window.innerWidth, window.innerHeight);
     this.particles = new ParticleSystem(CONFIG.simulation.maxParticles);
-    this.hive = new HiveMind();
+    // Карма Создателя: скрытая переменная −1…1 (см. addKarma). От неё зависит,
+    // какие фигуры существа покажут на «Сеансе связи».
+    this.karma = 0;
+    this.hive = new HiveMind(() => ({ karma: this.karma, lexicon: this.language.summary() }));
     this.language = new LanguageStats(); // «словарь»: наблюдаем, что значат слова
     this.logo = new LogoSoot(document.getElementById('logo'), assets);
 
@@ -101,7 +104,8 @@ class Simulation {
       dna = source.dna.mutated();
       generation = source.generation + 1;
     }
-    const p = this.world.randomPoint();
+    // Новые существа появляются подальше от яда (и от других существ)
+    const p = this.world.safePoint(CONFIG.world.spawnSafeDistance, this.world.poison);
     const c = new Creature(p.x, p.y, brain, generation, dna);
     this.world.creatures.push(c);
     return c;
@@ -194,19 +198,28 @@ class Simulation {
     y = clamp(y, 0, w.height - 0.01);
 
     const fromX = c.x, fromY = c.y;
+    const eatenBefore = c.foodEaten;
     const dx = x - fromX, dy = y - fromY;
     const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / Math.max(2, c.radius * 0.5)));
     for (let i = 1; i <= steps; i++) {
       c.x = fromX + (dx * i) / steps;
       c.y = fromY + (dy * i) / steps;
       if (c.checkContacts(w, this.particles)) {
-        // Яд! Существо погибло прямо в руках Создателя
+        // Яд! Существо погибло прямо в руках Создателя — карма резко падает
+        this.addKarma(CONFIG.karma.kill);
         this.dragged = null;
         this.removeDead();
         return;
       }
     }
     c.vx = c.vy = 0;
+    // Покормили с рук — карма растёт
+    if (c.foodEaten > eatenBefore) this.addKarma(CONFIG.karma.feed * (c.foodEaten - eatenBefore));
+  }
+
+  /** Изменить карму Создателя (всегда в пределах −1…1). */
+  addKarma(delta) {
+    this.karma = clamp(this.karma + delta, -1, 1);
   }
 
   /** Убрать погибших (с облачком сажи) — используется и в шаге симуляции, и при перетаскивании. */
@@ -236,11 +249,12 @@ class Simulation {
   }
 
   /** Пока существо «на ручках» — оно мурчит, а мы держим его под курсором. */
-  applyDrag() {
+  applyDrag(dt) {
     const t = this.dragged;
     if (!t) return;
     if (t.dead || !this.pointer.down) { this.dragged = null; return; }
     t.pet(CONFIG.petting.holdRefresh);
+    this.addKarma(CONFIG.karma.petPerSecond * dt); // гладим — карма медленно растёт
     // Держим под курсором (и проверяем, не выросла ли еда прямо под ним)
     this.dragTo(this.pointer.x + this.dragOffsetX, this.pointer.y + this.dragOffsetY);
   }
@@ -253,7 +267,9 @@ class Simulation {
     const world = this.world;
 
     world.update(dt);
-    this.applyDrag();
+    this.applyDrag(dt);
+    // Карма медленно «забывается» к нулю (существа прощают и забывают)
+    this.karma *= Math.pow(0.5, dt / CONFIG.karma.halfLife);
     this.hive.update(dt, world, this.particles, this.ui, this.time);
 
     for (const c of world.creatures) c.update(dt, world, this.particles);

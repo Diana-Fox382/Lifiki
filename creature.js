@@ -65,6 +65,7 @@ class Creature {
     this.speaker = null;        // кого слушаем (для подсветки)
     this.seenFood = null;       // что существо видит прямо сейчас (для подсветки)
     this.seenPoison = null;
+    this.attention = null;      // единичный вектор «куда смотрю» (на яд/еду) или null
     this.thermalCost = 0;       // доп. трата энергии из-за погоды (в секунду)
     this.coldStress = 0;        // 0..1 — насколько мёрзнет
     this.heatStress = 0;        // 0..1 — насколько перегревается
@@ -173,6 +174,9 @@ class Creature {
     const poison = poisonScan.seen;
     this.seenFood = food ? food.item : null;      // для подсветки при наведении курсора
     this.seenPoison = poison ? poison.item : null;
+    // Куда смотрят глаза: на яд (страх важнее), иначе на еду (единичный вектор)
+    const look = poison || food;
+    this.attention = look ? { x: look.dx / (look.dist || 1), y: look.dy / (look.dist || 1) } : null;
 
     // Слух: ближайший сосед в радиусе слышимости (во все стороны, без поля зрения).
     // Слышим ровно то число, которое он «произносит» — значение придумывает эволюция.
@@ -249,6 +253,7 @@ class Creature {
   updatePetting(dt, particles) {
     this.pettingTimer -= dt;
     this.signal *= Math.max(0, 1 - dt * 3); // на ручках не до разговоров — замолкает
+    this.attention = null;
     const damp = Math.max(0, 1 - dt * 12);
     this.vx *= damp;
     this.vy *= damp;
@@ -270,6 +275,7 @@ class Creature {
   updateCommunication(dt, world) {
     const cfg = CONFIG.comm;
     this.signal *= Math.max(0, 1 - dt * 3); // в ритуале существа молчат
+    this.attention = null;
     const d = world.delta(this.x, this.y, this.commTarget.x, this.commTarget.y);
     const dist = Math.hypot(d.x, d.y) || 0.0001;
 
@@ -428,11 +434,21 @@ class Creature {
   animateVisuals(dt, now) {
     const body = this.computeBody(now);
 
-    // Зрачки плавно смещаются туда, куда существо движется
-    const sp = this.speed;
-    const k = Math.min(1, sp / (this.maxSpeed * 0.6));
-    const tx = sp > 1 ? (this.vx / sp) * k : 0;
-    const ty = sp > 1 ? (this.vy / sp) * k : 0;
+    // Взгляд: глаза и зрачки смещаются туда, куда существо смотрит.
+    //   1) видит яд или еду — смотрит на них (на яд в первую очередь: страх!);
+    //   2) иначе — туда, куда ползёт (вектор скорости);
+    //   3) на ручках — на Создателя (прямо на нас, в центр).
+    let tx = 0, ty = 0;
+    if (!this.isPetted) {
+      if (this.attention) {
+        tx = this.attention.x;
+        ty = this.attention.y;
+      } else {
+        const sp = this.speed;
+        const k = Math.min(1, sp / (this.maxSpeed * 0.6));
+        if (sp > 1) { tx = (this.vx / sp) * k; ty = (this.vy / sp) * k; }
+      }
+    }
     const follow = Math.min(1, dt * 8);
     this.pupilX += (tx - this.pupilX) * follow;
     this.pupilY += (ty - this.pupilY) * follow;

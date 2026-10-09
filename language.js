@@ -92,7 +92,7 @@ class LanguageStats {
       const u = this.usage[w.id];
       const total = u.poison + u.food + u.none;
       let meaning = null;
-      if (total > 2) {
+      if (total > CONFIG.language.minEvidence) {
         let best = null, bestLift = 0;
         for (const k of CONTEXTS) {
           const share = u[k] / total;
@@ -100,7 +100,7 @@ class LanguageStats {
           const lift = share / base;
           if (lift > bestLift && share > 0.25) { bestLift = lift; best = { context: k, share, lift }; }
         }
-        if (best && best.lift >= 1.5) meaning = best;
+        if (best && best.lift >= CONFIG.language.minLift) meaning = best;
       }
       return { word: w, share: total / allTotal, meaning };
     });

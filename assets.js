@@ -293,8 +293,11 @@ class AssetManager {
     open = Math.max(0.08, open);
 
     const shift = CONFIG.soot.pupilShift;
+    // Глаза целиком «переезжают» по ядру в сторону взгляда, а зрачки — ещё дальше внутри глаза
+    const gx = creature.pupilX * r * CONFIG.soot.eyeShift;
+    const gy = creature.pupilY * r * CONFIG.soot.eyeShift;
     for (const e of eyes) {
-      const cx = e.x * r, cy = e.y * r;
+      const cx = e.x * r + gx, cy = e.y * r + gy;
       const erx = baseRX * e.size, ery = baseRY * e.size;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();

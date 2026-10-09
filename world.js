@@ -50,13 +50,40 @@ class World {
     return { x: Math.random() * this.width, y: Math.random() * this.height };
   }
 
+  /**
+   * Безопасная случайная точка: не ближе minDist к краю любого существа
+   * (и к точкам из списка avoid). Пробуем до 30 раз; если экран совсем тесный —
+   * берём самую «просторную» из найденных точек.
+   */
+  safePoint(minDist, avoid = null) {
+    let best = null, bestGap = -Infinity;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const p = this.randomPoint();
+      let gap = Infinity;
+      for (const c of this.creatures) {
+        if (c.dead) continue;
+        const d = this.delta(p.x, p.y, c.x, c.y);
+        gap = Math.min(gap, Math.hypot(d.x, d.y) - c.visualRadius);
+      }
+      if (avoid) {
+        for (const a of avoid) {
+          const d = this.delta(p.x, p.y, a.x, a.y);
+          gap = Math.min(gap, Math.hypot(d.x, d.y));
+        }
+      }
+      if (gap >= minDist) return p;
+      if (gap > bestGap) { bestGap = gap; best = p; }
+    }
+    return best;
+  }
+
   spawnFood() {
-    const p = this.randomPoint();
+    const p = this.safePoint(CONFIG.world.foodSafeDistance);
     this.food.push({ x: p.x, y: p.y, phase: randRange(0, TAU) });
   }
 
   spawnPoison() {
-    const p = this.randomPoint();
+    const p = this.safePoint(CONFIG.world.spawnSafeDistance);
     this.poison.push({ x: p.x, y: p.y, phase: randRange(0, TAU) });
   }
 
