@@ -42,10 +42,13 @@ class Simulation {
     window.addEventListener('resize', () => this.resize());
 
     this.world.populate();
-    for (let i = 0; i < CONFIG.population.initial; i++) this.spawnCreature();
+    // Стартовая популяция — не больше предела для этого экрана
+    const initial = Math.min(CONFIG.population.initial, this.world.maxPopulation);
+    for (let i = 0; i < initial; i++) this.spawnCreature();
 
     this.bindInput();
     this.ui.bindSettings();
+    this.ui.bindVisibility();
     this.ui.bind({
       onPause: () => this.togglePause(),
       onSpeed: () => {
@@ -53,7 +56,7 @@ class Simulation {
         this.ui.setSpeed(this.speed);
       },
       onCall: () => {
-        if (!this.hive.active) this.hive.start(this.world, this.particles, this.ui);
+        if (!this.hive.active) this.hive.start(this.world, this.particles, this.ui, true);
       },
     });
 
@@ -361,6 +364,7 @@ class Simulation {
         `<br>Погода: ${UI.thermalLabel(c)}` +
         `<br><span class="tt-head">🗣 Речь</span>` +
         `<br>Говорит: ${UI.wordLabel(c.signal)} · слышит: ${c.speaker ? UI.wordLabel(c.heardSignal) : 'никого'}` +
+        `<br>Общительность: ${Math.round(c.sociability * 100)}%` +
         `<br>${state}`);
     } else {
       this.ui.hideTooltip();
@@ -373,6 +377,7 @@ class Simulation {
    * То, что существо видит прямо сейчас, обведено кружком.
    */
   drawVision(ctx) {
+    if (this.ui.hidden) return; // в режиме «чистых обоев» — никаких подсказок
     const c = this.hovered;
     if (!c || c.dead) return;
     const R = c.dna.visionRadius;
@@ -459,7 +464,7 @@ class Simulation {
     // Интерфейс обновляем 4 раза в секунду — чаще не нужно
     this.uiTimer -= dt;
     if (this.uiTimer <= 0) {
-      this.ui.update(this.stats());
+      if (!this.ui.hidden) this.ui.update(this.stats());
       this.uiTimer = 0.25;
     }
 

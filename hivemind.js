@@ -191,6 +191,60 @@ const WORD_SHAPES = {
   },
 };
 
+/**
+ * «Перевод» под баннером «Они говорят: …» — по настроению (карме).
+ * Первая фраза в каждом списке — основная, остальные — для разнообразия.
+ * Меняйте и добавляйте свои!
+ */
+const MOOD_PHRASES = {
+  love: [
+    'Вы им нравитесь',
+    'Они рады, что вы рядом',
+    'Кажется, это благодарность',
+    'Они доверяют вашим рукам',
+    'Это похоже на «спасибо»',
+    'Они помнят вашу заботу',
+    'Вас считают своим',
+    'Они мурлычут хором',
+    'Им тепло, когда вы здесь',
+    'Похоже, вы их любимый Создатель',
+    'Они хотят, чтобы вы остались',
+  ],
+  hate: [
+    'Вы им не нравитесь',
+    'Они вас боятся',
+    'Это предупреждение',
+    'Они помнят каждый яд',
+    'Похоже на протест',
+    'Они просят оставить их в покое',
+    'Доверие придётся заслужить заново',
+    'Они держатся от ваших рук подальше',
+    'В их взглядах — обида',
+    'Кажется, это проклятие на их языке',
+    'Они больше не ждут от вас добра',
+  ],
+  neutral: [
+    'Они что-то говорят, но что?',
+    'Значение ещё не определено',
+    'Похоже на вопрос',
+    'Они присматриваются к вам',
+    'Может, это приветствие?',
+    'Слово из их языка — без перевода',
+    'Они ещё не решили, кто вы',
+    'Это шёпот, а не крик',
+    'Кажется, им просто любопытно',
+    'Смысл ускользает…',
+    'Они рассказывают что-то своё',
+  ],
+};
+
+/** Перевод слов их языка, у которых словарь уже нашёл значение. */
+const MEANING_PHRASES = {
+  poison: 'Кажется, это их слово для «опасно»',
+  food: 'Кажется, это их слово для «еда»',
+  none: 'Кажется, это их слово для «пусто, ничего нет»',
+};
+
 /** Наборы фигур по настроению (карма Создателя). */
 const MOOD_SHAPES = {
   love: ['heart', 'smile', 'flower', 'star', 'hi'],
@@ -244,7 +298,7 @@ class HiveMind {
     this.active = false;
     this.phase = null;            // 'gather' | 'hold'
     this.timer = 0;
-    this.cooldown = CONFIG.comm.firstDelay;
+    this.cooldown = HiveMind.nextWait(CONFIG.comm.firstDelay);
     this.shapeIndex = 0;
     this.participants = [];
     this.intensity = 0;           // 0..1 — для плавного затемнения экрана
@@ -262,9 +316,13 @@ class HiveMind {
 
     if (!this.active) {
       // Ждём, пока популяция «поумнеет», затем отсчитываем таймер
+      // Сами по себе они выходят на связь ОЧЕНЬ редко — это должно ощущаться как чудо.
       if (CONFIG.comm.enabled && world.averageGeneration() > CONFIG.comm.minAvgGeneration) {
         this.cooldown -= dt;
-        if (this.cooldown <= 0) this.start(world, particles, ui);
+        if (this.cooldown <= 0) {
+          this.start(world, particles, ui, false);
+          if (!this.active) this.cooldown = HiveMind.nextWait(CONFIG.comm.minCooldown); // никто не захотел
+        }
       }
       return;
     }
@@ -276,7 +334,7 @@ class HiveMind {
     if (this.phase === 'gather' && this.timer >= CONFIG.comm.gatherTime) {
       this.phase = 'hold';
       this.timer = 0;
-      ui.showBanner(`Они говорят: ${this.shape.icon}`);
+      ui.showBanner(`Они говорят: ${this.shape.icon}`, this.phrase());
     }
 
     if (this.phase === 'hold') {
@@ -301,12 +359,30 @@ class HiveMind {
     }
   }
 
-  /** Запуск сеанса связи. Возвращает false, если существ слишком мало. */
-  start(world, particles, ui) {
-    const creatures = world.creatures.filter(c => !c.dead);
-    if (creatures.length < 5) return false;
+  /**
+   * Сколько ждать следующего «чуда»: минимальная пауза + случайная
+   * (экспоненциальная) добавка в среднем comm.meanWait секунд.
+   */
+  static nextWait(minPause) {
+    return minPause - Math.log(1 - Math.random()) * CONFIG.comm.meanWait;
+  }
 
+  /**
+   * Запуск сеанса связи.
+   * @param {boolean} called — true: Создатель позвал кнопкой; false: они сами захотели.
+   * Участие ДОБРОВОЛЬНОЕ: каждое существо решает само (см. Creature.wantsToTalk).
+   * Возвращает false, если желающих слишком мало.
+   */
+  start(world, particles, ui, called = true) {
     this.shape = this.chooseShape();
+    const all = world.creatures.filter(c => !c.dead);
+    const creatures = all.filter(c => c.wantsToTalk(this.mood, called));
+    if (creatures.length < CONFIG.comm.minParticipants) {
+      if (called) ui.flashBanner('🤫 Никто не захотел выходить на связь', `Желающих: ${creatures.length} из ${all.length}`);
+      return false;
+    }
+    this.joined = creatures.length;
+    this.total = all.length;
 
     // Размер фигуры подстраивается под число существ: точки должны идти
     // примерно через comm.spacing px — тогда контур читается, а существа не слипаются.
@@ -340,17 +416,21 @@ class HiveMind {
     this.active = true;
     this.phase = 'gather';
     this.timer = 0;
-    ui.showBanner('💬 Сеанс связи с Создателем… они собираются вместе');
+    ui.showBanner(called ? '💬 Вы позвали — они собираются' : '✨ Они сами вышли на связь',
+      `Откликнулись: ${this.joined} из ${this.total}`);
     return true;
   }
 
   /** Конец сеанса: разлетаемся! */
   end(world, particles, ui) {
+    // Расходятся спокойно и не вслепую: если рядом яд — уходят ОТ него
     for (const c of this.participants) {
       c.commTarget = null;
       c.sepX = c.sepY = 0;
-      c.angle = randRange(0, TAU);
-      const s = c.maxSpeed * 0.7;
+      c.carefulTimer = CONFIG.comm.carefulAfter;
+      const danger = world.findNearest(world.poison, c.x, c.y, c.radius + 140);
+      c.angle = danger ? Math.atan2(-danger.dy, -danger.dx) : randRange(0, TAU);
+      const s = c.maxSpeed * 0.35;
       c.vx = Math.cos(c.angle) * s;
       c.vy = Math.sin(c.angle) * s;
     }
@@ -359,7 +439,7 @@ class HiveMind {
     this.participants = [];
     this.active = false;
     this.phase = null;
-    this.cooldown = CONFIG.comm.interval;
+    this.cooldown = HiveMind.nextWait(CONFIG.comm.minCooldown);
     ui.hideBanner();
   }
 
@@ -380,7 +460,11 @@ class HiveMind {
     // Кандидаты: [ключ, {icon, build}]
     let pool = MOOD_SHAPES[this.mood].map(k => [k, SHAPES[k]]);
     const words = lexicon ? lexicon.words.filter(w => w.share > 0.03) : [];
-    const asWord = (w) => [`word:${w.word.id}`, { icon: w.word.glyph, build: WORD_SHAPES[w.word.id] }];
+    const asWord = (w) => [`word:${w.word.id}`, {
+      icon: w.word.glyph,
+      build: WORD_SHAPES[w.word.id],
+      meaning: w.meaning ? w.meaning.context : null, // значение слова, если словарь его уже вывел
+    }];
 
     if (this.mood === 'hate') {
       // Их собственное слово «опасность» (если эволюция его придумала) — самый сильный протест
@@ -396,6 +480,17 @@ class HiveMind {
     const [key, shape] = (fresh.length ? fresh : pool)[Math.floor(Math.random() * (fresh.length || pool.length))];
     this.lastShapeKey = key;
     return shape;
+  }
+
+  /**
+   * Вторая строчка баннера: «перевод» по настроению.
+   * Если они «сказали» слово своего языка, у которого уже есть значение, —
+   * переводим его («Кажется, это их слово для «опасно»»).
+   */
+  phrase() {
+    if (this.shape.meaning) return MEANING_PHRASES[this.shape.meaning];
+    const list = MOOD_PHRASES[this.mood];
+    return list[Math.floor(Math.random() * list.length)];
   }
 
   /** Separation: существа отталкиваются от слишком близких соседей. */

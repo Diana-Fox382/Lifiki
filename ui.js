@@ -37,6 +37,7 @@ class UI {
       resetSettings: $('btn-reset-settings'),
       lexiconRows: $('lexicon-rows'),
       lexiconSilence: $('lexicon-silence'),
+      uiToggle: $('ui-toggle'),
       pauseBtn: $('btn-pause'),
       speedBtn: $('btn-speed'),
       callBtn: $('btn-call'),
@@ -44,6 +45,34 @@ class UI {
       tooltip: $('tooltip'),
       pauseBadge: $('pause-badge'),
     };
+  }
+
+  /**
+   * Режим «чистые обои»: кнопка с глазом (или клавиша H) прячет весь интерфейс.
+   * Выбор запоминается в браузере.
+   */
+  bindVisibility() {
+    const KEY = 'lifiki.uiHidden';
+    let hidden = false;
+    try { hidden = localStorage.getItem(KEY) === '1'; } catch (e) { hidden = false; }
+    const apply = () => {
+      document.body.classList.toggle('ui-hidden', hidden);
+      const label = hidden ? 'Показать интерфейс (H)' : 'Спрятать интерфейс (H)';
+      this.el.uiToggle.title = label;
+      this.el.uiToggle.setAttribute('aria-label', label);
+      try { localStorage.setItem(KEY, hidden ? '1' : '0'); } catch (e) { /* не страшно */ }
+    };
+    const toggle = () => { hidden = !hidden; apply(); };
+    this.el.uiToggle.addEventListener('click', toggle);
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey) toggle();
+    });
+    apply();
+  }
+
+  /** Интерфейс спрятан? (тогда не тратим время на обновление невидимых цифр) */
+  get hidden() {
+    return document.body.classList.contains('ui-hidden');
   }
 
   /** Подключаем кнопки к функциям симуляции. */
@@ -190,12 +219,32 @@ class UI {
     this.el.speedBtn.textContent = `⏩ x${speed}`;
   }
 
-  showBanner(text) {
-    this.el.banner.textContent = text;
-    this.el.banner.classList.add('visible');
+  /** Баннер сверху: заголовок + (необязательно) вторая строка-пояснение. */
+  showBanner(text, subtitle = '') {
+    clearTimeout(this.bannerTimer);
+    const b = this.el.banner;
+    b.textContent = '';
+    const title = document.createElement('div');
+    title.className = 'banner-title';
+    title.textContent = text;
+    b.appendChild(title);
+    if (subtitle) {
+      const sub = document.createElement('div');
+      sub.className = 'banner-sub';
+      sub.textContent = subtitle;
+      b.appendChild(sub);
+    }
+    b.classList.add('visible');
+  }
+
+  /** Баннер на пару секунд (например, «никто не захотел выходить на связь»). */
+  flashBanner(text, subtitle = '', ms = 3500) {
+    this.showBanner(text, subtitle);
+    this.bannerTimer = setTimeout(() => this.hideBanner(), ms);
   }
 
   hideBanner() {
+    clearTimeout(this.bannerTimer);
     this.el.banner.classList.remove('visible');
   }
 

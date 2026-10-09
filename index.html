@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lifiki — симулятор искусственной жизни</title>
+  <title>Lifiki — живые обои</title>
   <!-- Шрифт Nunito (если нет интернета — подставится системный) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,11 +35,11 @@
         <span class="stat-value"><span id="stat-generation">0</span> <small>/ <span id="stat-generation-max">0</span></small></span>
       </div>
       <div class="stat">
-        <span class="stat-label">⭐ Возраст рекордсмена</span>
+        <span class="stat-label">🏆 Возраст рекордсмена</span>
         <span class="stat-value" id="stat-record">0 с</span>
       </div>
-      <div class="stat stat-sub">
-        <span class="stat-label">Старейший из живых</span>
+      <div class="stat stat-sub stat-alive">
+        <span class="stat-label">⭐ Старейший из живых</span>
         <span class="stat-value" id="stat-record-alive">0 с</span>
       </div>
       <div class="stat stat-sub">
@@ -124,13 +124,19 @@
   </div>
 
   <!-- Подсказка внизу экрана -->
-  <div class="hint glass">🖐 Схвати пушистика и тащи: на руках он мурчит · дотащи до еды — покормишь, до яда — погибнет · <kbd>Пробел</kbd> — пауза</div>
+  <div class="hint glass">🖐 Схвати пушистика и тащи: на руках он мурчит · дотащи до еды — покормишь, до яда — погибнет<span class="desktop-only"> · <kbd>Пробел</kbd> — пауза · <kbd>H</kbd> — спрятать интерфейс</span></div>
 
   <!-- Баннер «Сеанса связи» -->
   <div class="banner glass" id="banner"></div>
 
   <!-- Всплывающая карточка существа -->
   <div class="tooltip glass" id="tooltip"></div>
+
+  <!-- Кнопка «спрятать/показать интерфейс» (режим чистых обоев). Клавиша H. -->
+  <button class="ui-toggle" id="ui-toggle" title="Спрятать интерфейс (H)" aria-label="Спрятать интерфейс">
+    <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+    <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7c2.1 0 3.9.7 5.4 1.7M22 12s-3.6 7-10 7c-2.1 0-3.9-.7-5.4-1.7"/><path d="M4 20 20 4"/></svg>
+  </button>
 
   <!-- Значок паузы -->
   <div class="pause-badge glass" id="pause-badge">⏸ Пауза</div>

@@ -66,6 +66,9 @@ class Creature {
     this.seenFood = null;       // что существо видит прямо сейчас (для подсветки)
     this.seenPoison = null;
     this.attention = null;      // единичный вектор «куда смотрю» (на яд/еду) или null
+    // Общительность (0..1): насколько охотно выходит на «Сеанс связи». Личная черта.
+    this.sociability = randRange(0.4, 1);
+    this.carefulTimer = 0;      // > 0 — только что вышел из сеанса связи и обходит яд
     this.thermalCost = 0;       // доп. трата энергии из-за погоды (в секунду)
     this.coldStress = 0;        // 0..1 — насколько мёрзнет
     this.heatStress = 0;        // 0..1 — насколько перегревается
@@ -131,7 +134,7 @@ class Creature {
     this.updateAnimations(dt);
 
     if (this.isPetted) this.updatePetting(dt, particles);
-    else if (this.isCommunicating) this.updateCommunication(dt, world);
+    else if (this.isCommunicating) this.updateCommunication(dt, world, particles);
     else this.updateBrain(dt, world, particles);
 
     // Движение + замкнутый мир (вышел справа — появился слева)
@@ -208,6 +211,16 @@ class Creature {
     this.vx = Math.cos(this.angle) * speed;
     this.vy = Math.sin(this.angle) * speed;
 
+    // Первые секунды после «Сеанса связи» существо ещё осторожно: огибает яд,
+    // пока «приходит в себя» (иначе, выходя из фигуры, оно спотыкалось о соседний яд).
+    if (this.carefulTimer > 0) {
+      this.carefulTimer -= dt;
+      const a = this.avoidPoison(world, this.vx, this.vy);
+      this.vx += a.x * dt;
+      this.vy += a.y * dt;
+      if (Math.hypot(this.vx, this.vy) > 1) this.angle = Math.atan2(this.vy, this.vx);
+    }
+
     // 5) ТРАТА ЭНЕРГИИ — связана с телом (см. DNA.computeTraits) и погодой:
     //    покой (размер, зрение, глаза) + движение (растёт с размером и скоростью)
     //    + климат (зимой мёрзнут лысые, летом перегреваются пушистые — seasons.js)
@@ -272,7 +285,7 @@ class Creature {
    *   separation   — не налезать на соседей (силу считает HiveMind).
    * Еда и яд в этом режиме игнорируются, энергия не тратится.
    */
-  updateCommunication(dt, world) {
+  updateCommunication(dt, world, particles) {
     const cfg = CONFIG.comm;
     this.signal *= Math.max(0, 1 - dt * 3); // в ритуале существа молчат
     this.attention = null;
@@ -293,8 +306,64 @@ class Creature {
       steerX = (steerX / mag) * cfg.maxForce;
       steerY = (steerY / mag) * cfg.maxForce;
     }
+    // Яд НЕ игнорируем: обходим его (отталкивание + «скольжение» вбок вокруг яда).
+    // Если точка фигуры у самого яда — существо просто встанет поодаль:
+    // фигура выйдет менее ровной, зато это их собственный выбор, а не слепое повиновение.
+    const avoid = this.avoidPoison(world, desiredX, desiredY);
+    steerX += avoid.x;
+    steerY += avoid.y;
+
     this.vx += steerX * dt;
     this.vy += steerY * dt;
+
+    // Касание — как обычно: еду съедят, а на яд наткнуться всё ещё можно (если не успели свернуть)
+    this.checkContacts(world, particles);
+  }
+
+  /**
+   * Сила «обхода яда» для режима сеанса связи (steering behavior «avoid»).
+   * Каждый яд ближе (радиус + comm.avoidRadius) отталкивает тем сильнее, чем он ближе,
+   * и подталкивает вбок — в ту сторону, куда существу и так надо (огибает, а не застревает).
+   */
+  avoidPoison(world, desiredX, desiredY) {
+    const cfg = CONFIG.comm;
+    const R = this.radius + cfg.avoidRadius;
+    let ax = 0, ay = 0, strongest = 0, look = null;
+    for (const p of world.poison) {
+      const d = world.delta(this.x, this.y, p.x, p.y);
+      const dist = Math.hypot(d.x, d.y);
+      if (dist >= R || dist === 0) continue;
+      const k = (R - dist) / R;
+      const force = k * k * cfg.avoidForce;
+      const nx = d.x / dist, ny = d.y / dist;
+      ax -= nx * force;
+      ay -= ny * force;
+      // Вбок: перпендикуляр, повёрнутый в сторону желаемого движения
+      let px = -ny, py = nx;
+      if (px * desiredX + py * desiredY < 0) { px = -px; py = -py; }
+      ax += px * force * 0.6;
+      ay += py * force * 0.6;
+      if (k > strongest) { strongest = k; look = { x: nx, y: ny }; }
+    }
+    if (look) this.attention = look; // глаза — на яд, который обходим
+    return { x: ax, y: ay };
+  }
+
+  /**
+   * Захочет ли существо выйти на связь? Это его выбор:
+   *   • общительность — личная черта (наследуется с небольшими мутациями);
+   *   • голодному не до разговоров;
+   *   • любят Создателя — откликаются охотнее, боятся — реже;
+   *   • если Создатель позвал сам — откликаются чуть охотнее.
+   */
+  wantsToTalk(mood, called) {
+    if (this.dead || this.isPetted) return false;
+    let p = CONFIG.comm.joinChance * this.sociability;
+    if (this.energyRatio < 0.3) p *= 0.3;
+    if (mood === 'love') p *= 1.15;
+    else if (mood === 'hate') p *= 0.85;
+    if (called) p += 0.1;
+    return Math.random() < p;
   }
 
   /** Таймеры анимаций. */
@@ -345,6 +414,8 @@ class Creature {
     child.vy = Math.sin(child.angle) * 70;
     child.drawAngle = this.drawAngle; // вытягиваются вдоль одной оси
     child.appear = 1;
+    // Характер наследуется: общительность родителя ± немного
+    child.sociability = clamp(this.sociability + gaussianRandom() * 0.08, 0.15, 1);
 
     // Сильное вытягивание при делении
     this.stretch = 1;
@@ -394,8 +465,8 @@ class Creature {
       const shake = Math.sin(now * 0.19 + this.id) * CONFIG.soot.purrCoreShake;
       bx *= 1 + shake;
       by *= 1 - shake;
-      jx = Math.sin(now * 0.23 + this.id * 3) * r * 0.05;
-      jy = Math.cos(now * 0.29 + this.id * 5) * r * 0.05;
+      jx = Math.sin(now * 0.23 + this.id * 3) * r * 0.012;  // дрожь еле заметна
+      jy = Math.cos(now * 0.29 + this.id * 5) * r * 0.012;
     }
 
     // 3б) Дрожь от холода: мёрзнущие (лысые зимой) мелко трясутся

@@ -146,47 +146,73 @@ class SootFur {
   }
 
   /**
-   * Рисуем все волоски ОДНИМ путём (один stroke на существо — это быстро).
-   * Кривая проходит через точки волоска по «средним точкам» — получается гладко.
+   * Рисуем шерсть: каждый волосок — гладкая кривая, которая СУЖАЕТСЯ к кончику
+   * (как настоящая шерстинка): у корня ~2–3 px, на кончике ~0.4 px.
+   *
+   * Как это сделано быстро: кривую волоска делим на несколько кусочков
+   * (по 2 на каждый изгиб). Толщина у кусочков разная, поэтому кусочки
+   * ОДНОГО уровня у всех волосков рисуем одним stroke():
+   * всего ~5 вызовов stroke на существо, а не по вызову на каждый волосок.
    */
   draw(ctx, body, now) {
     const cfg = CONFIG.soot;
     const r = body.r;
     const vibAmp = body.purring ? body.hairLength * cfg.purrAmplitude : 0;
+    const hairs = this.hairs;
+    const n = hairs[0].nodes.length;
+    const segs = 2 * (n - 1) + 1;           // кусочков в одном волоске
+    const stride = (segs + 1) * 2;          // точек (x, y) на волосок
+    if (!this.pts || this.pts.length !== hairs.length * stride) {
+      this.pts = new Float32Array(hairs.length * stride);
+    }
+    const P = this.pts;
 
-    ctx.beginPath();
-    for (const h of this.hairs) {
+    // 1) Точки гладкой кривой каждого волоска (те же квадратичные изгибы, что и раньше)
+    hairs.forEach((h, hi) => {
       const nodes = h.nodes;
       // Мурчание: мелкая частая дрожь, сильнее к кончику (только визуально, не в физике)
       const vib = vibAmp ? Math.sin(now * 0.21 + h.phase * 13) * vibAmp : 0;
       const px = -h.dirY * vib, py = h.dirX * vib;
-      const last = nodes.length - 1;
-
-      ctx.moveTo(h.rootX, h.rootY);
-      for (let k = 0; k < last; k++) {
-        const t = (k + 1) / nodes.length, t2 = (k + 2) / nodes.length;
-        const ax = nodes[k].x + px * t, ay = nodes[k].y + py * t;
-        const bx = nodes[k + 1].x + px * t2, by = nodes[k + 1].y + py * t2;
-        ctx.quadraticCurveTo(ax, ay, (ax + bx) / 2, (ay + by) / 2);
+      let o = hi * stride;
+      let sx = h.rootX, sy = h.rootY;
+      P[o++] = sx; P[o++] = sy;
+      for (let k = 0; k < n - 1; k++) {
+        const t = (k + 1) / n, t2 = (k + 2) / n;
+        const cx = nodes[k].x + px * t, cy = nodes[k].y + py * t;
+        const ex = (cx + nodes[k + 1].x + px * t2) / 2, ey = (cy + nodes[k + 1].y + py * t2) / 2;
+        // середина квадратичной кривой (t = 0.5) и её конец
+        P[o++] = 0.25 * sx + 0.5 * cx + 0.25 * ex; P[o++] = 0.25 * sy + 0.5 * cy + 0.25 * ey;
+        P[o++] = ex; P[o++] = ey;
+        sx = ex; sy = ey;
       }
-      ctx.lineTo(nodes[last].x + px, nodes[last].y + py);
-    }
-    ctx.strokeStyle = '#060609';
-    ctx.lineWidth = clamp(r * cfg.hairWidth, 1.2, 3.2);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
+      P[o++] = nodes[n - 1].x + px; P[o++] = nodes[n - 1].y + py;
+    });
 
-    // Тонкий «блеск» на кончиках каждого второго волоска — шерсть выглядит объёмнее
+    // 2) Рисуем уровнями: от толстых кусочков у корня к тонким у кончика
+    const rootW = clamp(r * cfg.hairWidth, 1.4, 3.2);
+    const tipW = cfg.hairTipWidth;
+    ctx.strokeStyle = '#060609';
+    ctx.lineCap = 'round';
+    for (let s = 0; s < segs; s++) {
+      ctx.beginPath();
+      for (let hi = 0; hi < hairs.length; hi++) {
+        const o = hi * stride + s * 2;
+        ctx.moveTo(P[o], P[o + 1]);
+        ctx.lineTo(P[o + 2], P[o + 3]);
+      }
+      ctx.lineWidth = lerp(rootW, tipW, (s + 0.5) / segs);
+      ctx.stroke();
+    }
+
+    // 3) Тонкий «блеск» на самых кончиках каждого второго волоска — шерсть объёмнее
     ctx.beginPath();
-    for (let i = 0; i < this.hairs.length; i += 2) {
-      const nodes = this.hairs[i].nodes;
-      const a = nodes[nodes.length - 2], b = nodes[nodes.length - 1];
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+    for (let hi = 0; hi < hairs.length; hi += 2) {
+      const o = hi * stride + (segs - 1) * 2;
+      ctx.moveTo(P[o], P[o + 1]);
+      ctx.lineTo(P[o + 2], P[o + 3]);
     }
     ctx.strokeStyle = SootFur.sheen; // цвет задаёт климат (иней зимой, тёплый блик летом)
-    ctx.lineWidth = clamp(r * 0.05, 0.6, 1.3);
+    ctx.lineWidth = Math.max(0.4, tipW);
     ctx.stroke();
   }
 }
