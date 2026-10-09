@@ -24,6 +24,7 @@ class Simulation {
     // Состояние указателя (мышь или палец)
     this.pointer = { x: 0, y: 0, down: false, inside: false };
     this.petTarget = null;    // кого сейчас гладим
+    this.hovered = null;      // над кем курсор (показываем круг зрения)
   }
 
   // ===========================================================================
@@ -73,24 +74,30 @@ class Simulation {
   }
 
   /**
-   * Новое существо в случайном месте. Чаще всего ему достаётся
-   * мутированный мозг рекордсмена — так эволюция не начинается с нуля,
-   * даже если популяция почти вымерла. Иногда — совсем случайный мозг
-   * (для разнообразия «генофонда»).
+   * Новое существо («подселенец») в случайном месте.
+   *
+   * По умолчанию (CONFIG.population.immigrantsFromBest = 0) это честное
+   * поколение 0: случайный мозг и случайная ДНК. Тогда «ум» появляется
+   * ТОЛЬКО у потомков тех, кто сам сумел наесться и поделиться.
+   *
+   * Если поднять immigrantsFromBest (например, до 0.75), часть подселенцев
+   * будет получать мутированные мозг и ДНК рекордсмена — это «элитизм»
+   * из генетических алгоритмов: эволюция быстрее, но уже не чисто природная.
    */
   spawnCreature() {
-    let brain = null, generation = 0;
+    let brain = null, dna = null, generation = 0;
     const oldest = this.world.oldestCreature();
     let source = null;
-    if (oldest && oldest.age > this.world.recordAge) source = { brain: oldest.brain, generation: oldest.generation };
-    else if (this.world.bestBrain) source = { brain: this.world.bestBrain, generation: this.world.bestGeneration };
+    if (oldest && oldest.age > this.world.recordAge) source = { brain: oldest.brain, dna: oldest.dna, generation: oldest.generation };
+    else if (this.world.bestBrain) source = { brain: this.world.bestBrain, dna: this.world.bestDNA, generation: this.world.bestGeneration };
 
-    if (source && Math.random() < 0.75) {
+    if (source && Math.random() < CONFIG.population.immigrantsFromBest) {
       brain = source.brain.copy().mutate(CONFIG.brain.mutationRate * 1.5, CONFIG.brain.mutationAmount);
+      dna = source.dna.mutated();
       generation = source.generation + 1;
     }
     const p = this.world.randomPoint();
-    const c = new Creature(p.x, p.y, brain, generation);
+    const c = new Creature(p.x, p.y, brain, generation, dna);
     this.world.creatures.push(c);
     return c;
   }
@@ -155,7 +162,7 @@ class Simulation {
     for (const cr of this.world.creatures) {
       const d = this.world.delta(x, y, cr.x, cr.y);
       const dist = Math.hypot(d.x, d.y);
-      if (dist < cr.radius + CONFIG.petting.pickPadding && dist < bestD) {
+      if (dist < cr.radius + cr.dna.hairLength * 0.4 + CONFIG.petting.pickPadding && dist < bestD) {
         best = cr;
         bestD = dist;
       }
@@ -234,6 +241,7 @@ class Simulation {
     for (const p of this.world.poison) this.assets.drawPoison(ctx, p, time);
 
     this.hive.drawOverlay(ctx, w, h);
+    this.drawVision(ctx);
 
     const champion = this.world.oldestCreature();
     for (const c of this.world.creatures) {
@@ -246,18 +254,45 @@ class Simulation {
 
   /** Курсор и всплывающая подсказка над существом. */
   updateHover() {
+    this.hovered = null;
     if (!this.pointer.inside) return;
     const c = this.pickCreature(this.pointer.x, this.pointer.y);
+    this.hovered = c;
     this.canvas.style.cursor = c ? (this.pointer.down ? 'grabbing' : 'grab') : 'default';
     if (c) {
-      const energy = Math.round((c.energy / CONFIG.energy.max) * 100);
+      const d = c.dna, t = c.traits;
+      const energy = Math.round(c.energyRatio * 100);
       const state = c.isPetted ? '😊 мурчит' : c.isCommunicating ? '💬 на связи' : '🍃 гуляет';
       this.ui.showTooltip(this.pointer.x, this.pointer.y,
-        `<b>Пушистик #${c.id}</b><br>Поколение: ${c.generation}<br>Возраст: ${UI.formatAge(c.age)}` +
-        `<br>Энергия: ${energy}%<br>Съел: ${c.foodEaten} · Детей: ${c.children}<br>${state}`);
+        `<b>Пушистик #${c.id}</b> · поколение ${c.generation}<br>Возраст: ${UI.formatAge(c.age)}` +
+        `<br>Энергия: ${energy}% из ${Math.round(c.maxEnergy)}<br>Съел: ${c.foodEaten} · Детей: ${c.children}` +
+        `<br><span class="tt-head">🧬 ДНК</span>` +
+        `<br>Ядро: ${d.baseRadius.toFixed(1)} px · Глаз: ${d.numEyes}` +
+        `<br>Шерсть: ${d.hairCount} × ${d.hairLength.toFixed(0)} px` +
+        `<br>Зрение: ${Math.round(d.visionRadius)} px` +
+        `<br><span class="tt-head">⚙️ Тело</span>` +
+        `<br>Скорость: ${Math.round(t.maxSpeed)} px/с` +
+        `<br>Трата: ${t.idleCost.toFixed(1)}/с в покое, +${t.moveCost.toFixed(1)}/с на бегу` +
+        `<br>${state}`);
     } else {
       this.ui.hideTooltip();
     }
+  }
+
+  /** Круг зрения существа под курсором — видно, насколько далеко оно «видит». */
+  drawVision(ctx) {
+    const c = this.hovered;
+    if (!c || c.dead) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.dna.visionRadius, 0, TAU);
+    ctx.fillStyle = 'rgba(143, 211, 255, 0.05)';
+    ctx.fill();
+    ctx.setLineDash([6, 8]);
+    ctx.strokeStyle = 'rgba(143, 211, 255, 0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
   stats() {
@@ -273,6 +308,7 @@ class Simulation {
       food: world.food.length,
       poison: world.poison.length,
       awareness: this.hive.awareness(world),
+      dna: world.averageDNA(),
     };
   }
 

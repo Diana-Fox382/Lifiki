@@ -208,59 +208,89 @@ class AssetManager {
   }
 
   /**
-   * Большие милые глаза. Не вращаются вместе с движением — всегда смотрят на зрителя.
+   * Раскладки глаз в зависимости от гена numEyes.
+   * x, y — позиция в долях радиуса ядра; size — множитель размера глаза.
+   */
+  static eyeLayout(numEyes) {
+    switch (numEyes) {
+      case 1: // циклоп — один большой глаз
+        return [{ x: 0, y: -0.05, size: 1.45 }];
+      case 3: // забавная кучка: два внизу, один сверху
+        return [
+          { x: -0.33, y: 0.06, size: 0.85 },
+          { x: 0.33, y: 0.06, size: 0.85 },
+          { x: 0, y: -0.38, size: 0.75 },
+        ];
+      case 4: // сетка 2×2
+        return [
+          { x: -0.3, y: -0.26, size: 0.72 },
+          { x: 0.3, y: -0.26, size: 0.72 },
+          { x: -0.3, y: 0.24, size: 0.72 },
+          { x: 0.3, y: 0.24, size: 0.72 },
+        ];
+      default: // 2 — классика
+        return [
+          { x: -0.31, y: -0.06, size: 1 },
+          { x: 0.31, y: -0.06, size: 1 },
+        ];
+    }
+  }
+
+  /**
+   * Большие милые глаза (количество и раскладка — из ДНК).
+   * Не вращаются вместе с движением — всегда смотрят на зрителя.
    *   • зрачки смещаются в сторону движения (creature.pupilX / pupilY);
    *   • моргание; при голоде — сонные полузакрытые глаза;
    *   • при поглаживании — счастливые «^ ^» и румянец.
    */
   drawSootEyes(ctx, creature, r) {
-    const ex = r * 0.31;   // расстояние от центра до каждого глаза по X
-    const ey = -r * 0.06;  // глаза чуть выше центра
-    const erx = r * 0.26;
-    const ery = r * 0.31;
+    const eyes = AssetManager.eyeLayout(creature.dna.numEyes);
+    const baseRX = r * 0.26;
+    const baseRY = r * 0.31;
 
     if (creature.isPetted) {
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(1.2, r * 0.11);
       ctx.lineCap = 'round';
-      for (const side of [-1, 1]) {
+      for (const e of eyes) {
+        const erx = baseRX * e.size, ery = baseRY * e.size;
+        ctx.lineWidth = Math.max(1.2, r * 0.11 * e.size);
         ctx.beginPath();
-        ctx.arc(side * ex, ey + ery * 0.45, erx * 0.8, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.arc(e.x * r, e.y * r + ery * 0.45, erx * 0.8, Math.PI * 1.15, Math.PI * 1.85);
         ctx.stroke();
       }
       ctx.fillStyle = 'rgba(255, 120, 170, 0.6)';
       for (const side of [-1, 1]) {
         ctx.beginPath();
-        ctx.ellipse(side * r * 0.47, ey + r * 0.33, r * 0.13, r * 0.08, 0, 0, TAU);
+        ctx.ellipse(side * r * 0.5, r * 0.36, r * 0.13, r * 0.08, 0, 0, TAU);
         ctx.fill();
       }
       return;
     }
 
     let open = 1 - creature.blink;
-    if (creature.energy < CONFIG.energy.max * 0.25) open *= 0.55; // голодный — сонный
+    if (creature.energyRatio < 0.25) open *= 0.55; // голодный — сонный
     open = Math.max(0.08, open);
 
     const shift = CONFIG.soot.pupilShift;
-    const lookX = creature.pupilX * erx * shift;
-    const lookY = creature.pupilY * ery * shift;
-
-    for (const side of [-1, 1]) {
-      const cx = side * ex;
+    for (const e of eyes) {
+      const cx = e.x * r, cy = e.y * r;
+      const erx = baseRX * e.size, ery = baseRY * e.size;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.ellipse(cx, ey, erx, ery * open, 0, 0, TAU);
+      ctx.ellipse(cx, cy, erx, ery * open, 0, 0, TAU);
       ctx.fill();
       if (open > 0.3) {
-        const px = cx + lookX, py = ey + lookY * open;
+        const px = cx + creature.pupilX * erx * shift;
+        const py = cy + creature.pupilY * ery * shift * open;
+        const pr = r * 0.13 * e.size;
         ctx.fillStyle = '#000000';
         ctx.beginPath();
-        ctx.arc(px, py, r * 0.13, 0, TAU);
+        ctx.arc(px, py, pr, 0, TAU);
         ctx.fill();
         // Блик в глазу — делает взгляд «живым»
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(px + r * 0.04, py - r * 0.05, r * 0.042, 0, TAU);
+        ctx.arc(px + pr * 0.3, py - pr * 0.38, pr * 0.32, 0, TAU);
         ctx.fill();
       }
     }

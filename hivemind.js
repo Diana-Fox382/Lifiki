@@ -190,7 +190,7 @@ class HiveMind {
       c.commTarget = null;
       c.sepX = c.sepY = 0;
       c.angle = randRange(0, TAU);
-      const s = CONFIG.creature.maxSpeed * 0.7;
+      const s = c.maxSpeed * 0.7;
       c.vx = Math.cos(c.angle) * s;
       c.vy = Math.sin(c.angle) * s;
     }

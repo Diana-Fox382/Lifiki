@@ -3,7 +3,8 @@
  *
  * У существа есть:
  *   • тело: позиция (x, y), скорость (vx, vy), направление (angle);
- *   • мозг: NeuralNetwork, который решает, куда ехать;
+ *   • мозг: NeuralNetwork, который решает, куда ехать (ПОВЕДЕНИЕ);
+ *   • ДНК: DNA — размер, шерсть, глаза, зрение (ТЕЛО, см. dna.js);
  *   • энергия: тратится на жизнь и движение, пополняется едой и поглаживанием;
  *   • 3 режима поведения:
  *       1) обычный     — думает нейросетью, ищет еду, избегает яд;
@@ -25,7 +26,11 @@
 let creatureIdCounter = 0;
 
 class Creature {
-  constructor(x, y, brain = null, generation = 0) {
+  /**
+   * @param {NeuralNetwork|null} brain — null = случайный мозг (поколение 0)
+   * @param {DNA|null} dna             — null = случайная ДНК (поколение 0)
+   */
+  constructor(x, y, brain = null, generation = 0, dna = null) {
     this.id = ++creatureIdCounter;
 
     // --- Физика ---
@@ -39,8 +44,10 @@ class Creature {
     // --- Мозг и жизнь ---
     const b = CONFIG.brain;
     this.brain = brain || new NeuralNetwork(b.inputs, b.hidden, b.outputs);
+    this.dna = dna || DNA.random();
+    this.traits = this.dna.traits;  // готовые характеристики тела (скорость, траты…)
     this.generation = generation;
-    this.energy = CONFIG.energy.start;
+    this.energy = CONFIG.energy.start * this.maxEnergy;
     this.age = 0;
     this.foodEaten = 0;
     this.children = 0;
@@ -69,24 +76,26 @@ class Creature {
     this.breathOffset = randRange(0, CONFIG.breathing.cycle);
     this.pupilX = 0;              // смещение зрачков (−1..1) в сторону движения
     this.pupilY = 0;
-    this.fur = new SootFur();
+    this.fur = new SootFur(this.dna);
     // Текущее состояние ядра (переиспользуем один объект, чтобы не мусорить память)
-    this.body = { cx: x, cy: y, r: 10, coreR: 8, m00: 1, m01: 0, m10: 0, m11: 1, breath: 0, purring: false };
+    this.body = { cx: x, cy: y, r: 10, coreR: 10, hairLength: 10, m00: 1, m01: 0, m10: 0, m11: 1, breath: 0, purring: false };
   }
 
   // --- Удобные «свойства» ---------------------------------------------------
-  get radius() {
-    const c = CONFIG.creature;
-    const e = clamp(this.energy / CONFIG.energy.max, 0, 1);
-    return c.minRadius + (c.maxRadius - c.minRadius) * e;
-  }
+  get maxEnergy() { return this.traits.maxEnergy; }
+  get maxSpeed() { return this.traits.maxSpeed; }
+  get energyRatio() { return clamp(this.energy / this.maxEnergy, 0, 1); }
+  /** Радиус ядра: из ДНК, голодное существо чуть «сдувается» (до −15 %). */
+  get radius() { return this.dna.baseRadius * (0.85 + 0.15 * this.energyRatio); }
+  /** Радиус вместе с шерстью — для рисования, короны и т.п. */
+  get visualRadius() { return this.radius + this.dna.hairLength; }
   get speed() { return Math.hypot(this.vx, this.vy); }
   get isPetted() { return this.pettingTimer > 0; }
   get isCommunicating() { return this.commTarget !== null; }
 
   /** Можно ли делиться прямо сейчас. */
   canDivide() {
-    return !this.dead && this.energy >= CONFIG.energy.max && !this.isPetted && !this.isCommunicating;
+    return !this.dead && this.energy >= this.maxEnergy && !this.isPetted && !this.isCommunicating;
   }
 
   /** Вызывается при клике/удержании мышки на существе. */
@@ -127,46 +136,57 @@ class Creature {
     if (this.energy <= 0) this.die('hunger');
   }
 
-  /** Обычная жизнь: органы чувств → нейросеть → движение. */
+  /**
+   * Обычная жизнь: органы чувств → нейросеть → движение.
+   *
+   * ВАЖНО: здесь нет никакого «наведения на еду». Существо только ВИДИТ
+   * (входы), а куда повернуть и сколько газовать, решают ИСКЛЮЧИТЕЛЬНО
+   * два выхода нейросети. У поколения 0 веса случайные — оно крутится
+   * на месте или ползает кругами. Поворачивать к еде учит только эволюция.
+   */
   updateBrain(dt, world, particles) {
     const c = CONFIG.creature;
-    const e = CONFIG.energy;
+    const t = this.traits;
+    const vision = this.dna.visionRadius;
 
-    // 1) ОРГАНЫ ЧУВСТВ: ищем ближайшую еду и ближайший яд в радиусе чутья
-    const food = world.findNearest(world.food, this.x, this.y, c.senseRadius);
-    const poison = world.findNearest(world.poison, this.x, this.y, c.senseRadius);
+    // 1) ОРГАНЫ ЧУВСТВ: ближайшая еда и яд, но только в радиусе зрения (ген visionRadius)
+    const food = world.findNearest(world.food, this.x, this.y, vision);
+    const poison = world.findNearest(world.poison, this.x, this.y, vision);
     const foodAngle = food ? wrapAngle(Math.atan2(food.dy, food.dx) - this.angle) : 0;
     const poisonAngle = poison ? wrapAngle(Math.atan2(poison.dy, poison.dx) - this.angle) : 0;
 
     // 2) ВХОДЫ НЕЙРОСЕТИ — все значения примерно в диапазоне [-1, 1]
     const inputs = [
       foodAngle / Math.PI,                         // где еда: слева (-) / справа (+)
-      food ? food.dist / c.senseRadius : 1,        // как далеко еда (1 = не видно)
+      food ? food.dist / vision : 1,               // как далеко еда (1 = не видно)
       poisonAngle / Math.PI,                       // где яд
-      poison ? poison.dist / c.senseRadius : 1,    // как далеко яд
-      this.energy / e.max,                         // насколько я сыт
+      poison ? poison.dist / vision : 1,           // как далеко яд
+      this.energyRatio,                            // насколько я сыт
     ];
 
     // 3) МОЗГ ДУМАЕТ: два выхода от -1 до 1
-    const [accel, turn] = this.brain.predict(inputs);
+    const output = this.brain.predict(inputs);
+    const accel = output[0];   // output[0] → ускорение (газ / тормоз)
+    const turn = output[1];    // output[1] → изменение угла (rotation delta)
 
-    // 4) ДВИЖЕНИЕ: поворачиваем и газуем/тормозим
+    // 4) ДВИЖЕНИЕ: только по выходам сети; пределы скорости/ускорения — из ДНК
     this.angle = wrapAngle(this.angle + turn * c.maxTurnRate * dt);
-    let speed = this.speed + accel * c.maxAccel * dt;
+    let speed = this.speed + accel * t.maxAccel * dt;
     speed -= speed * c.friction * dt;
-    speed = clamp(speed, 0, c.maxSpeed);
+    speed = clamp(speed, 0, t.maxSpeed);
     this.vx = Math.cos(this.angle) * speed;
     this.vy = Math.sin(this.angle) * speed;
 
-    // 5) ТРАТА ЭНЕРГИИ: базовая + за скорость (квадратично — быстро бегать дорого)
-    const speedRatio = speed / c.maxSpeed;
-    this.energy -= (e.baseCost + e.moveCost * speedRatio * speedRatio) * dt;
+    // 5) ТРАТА ЭНЕРГИИ — связана с телом (см. DNA.computeTraits):
+    //    покой (размер, шерсть-утеплитель, зрение) + движение (∝ размер² × скорость²)
+    const speedRatio = speed / t.maxSpeed;
+    this.energy -= (t.idleCost + t.moveCost * speedRatio * speedRatio) * dt;
 
     // 6) ЕДА И ЯД: если дотянулись — съедаем
     const reach = this.radius + CONFIG.world.eatPadding;
     if (food && food.dist < reach) {
       world.removeAt(world.food, food.index);
-      this.energy = Math.min(e.max, this.energy + e.food);
+      this.energy = Math.min(this.maxEnergy, this.energy + CONFIG.energy.food);
       this.foodEaten++;
       this.eatScale = 1.3; // резкий scale(1.3) при поедании
       particles.emitSparkles(food.item.x, food.item.y, '#7dffb0', 7, 60);
@@ -184,7 +204,7 @@ class Creature {
     const damp = Math.max(0, 1 - dt * 12);
     this.vx *= damp;
     this.vy *= damp;
-    this.energy = Math.min(CONFIG.energy.max, this.energy + CONFIG.energy.petPerSecond * dt);
+    this.energy = Math.min(this.maxEnergy, this.energy + CONFIG.energy.petPerSecond * dt);
 
     this.heartTimer -= dt;
     if (this.heartTimer <= 0) {
@@ -224,7 +244,7 @@ class Creature {
 
   /** Таймеры анимаций. */
   updateAnimations(dt) {
-    const speedRatio = Math.min(1, this.speed / CONFIG.creature.maxSpeed);
+    const speedRatio = Math.min(1, this.speed / this.maxSpeed);
     this.walkPhase += dt * (5 + speedRatio * 12);
     this.eatScale += (1 - this.eatScale) * Math.min(1, dt * 7);
     this.stretch = Math.max(0, this.stretch - dt * 1.6);
@@ -246,19 +266,22 @@ class Creature {
 
   /**
    * Деление. Родитель отдаёт часть энергии потомку.
-   * Мозг потомка = копия мозга родителя + мутации.
+   * Мозг потомка = копия мозга родителя + мутации весов.
+   * ДНК потомка  = копия ДНК родителя + мутации генов (±10–20 %).
    */
   divide() {
     const e = CONFIG.energy;
     const b = CONFIG.brain;
     const childBrain = this.brain.copy().mutate(b.mutationRate, b.mutationAmount);
+    const childDNA = this.dna.mutated();
 
     const back = this.drawAngle + Math.PI;
     const r = this.radius;
-    const child = new Creature(this.x + Math.cos(back) * r, this.y + Math.sin(back) * r, childBrain, this.generation + 1);
+    const child = new Creature(this.x + Math.cos(back) * r, this.y + Math.sin(back) * r, childBrain, this.generation + 1, childDNA);
 
-    this.energy = e.max * e.splitShare;
-    child.energy = e.max * e.splitShare;
+    // «Цена родов» фиксирована, поэтому маленьким (с маленьким запасом) она обходится дороже
+    this.energy = this.maxEnergy * e.splitShare - e.splitCost / 2;
+    child.energy = child.maxEnergy * e.splitShare - e.splitCost / 2;
 
     // Потомок «отталкивается» назад
     child.angle = wrapAngle(back + randRange(-0.6, 0.6));
@@ -266,7 +289,6 @@ class Creature {
     child.vy = Math.sin(child.angle) * 70;
     child.drawAngle = this.drawAngle; // вытягиваются вдоль одной оси
     child.appear = 1;
-    child.fur = new SootFur(this.fur); // «причёска» как у родителя
 
     // Сильное вытягивание при делении
     this.stretch = 1;
@@ -290,7 +312,7 @@ class Creature {
   computeBody(now) {
     const body = this.body;
     const r = this.radius;
-    const speedRatio = Math.min(1, this.speed / CONFIG.creature.maxSpeed);
+    const speedRatio = Math.min(1, this.speed / this.maxSpeed);
     const purring = this.isPetted;
 
     // 1) Дыхание (асимметричный цикл 4.5 с, см. breathing.js)
@@ -338,7 +360,8 @@ class Creature {
     body.cx = this.x + jx;
     body.cy = this.y + jy - hop;
     body.r = r;
-    body.coreR = r * CONFIG.soot.coreRatio;
+    body.coreR = r;                       // ядро = baseRadius из ДНК
+    body.hairLength = this.dna.hairLength;
     body.breath = breath;
     body.purring = purring;
     return body;
@@ -350,7 +373,7 @@ class Creature {
 
     // Зрачки плавно смещаются туда, куда существо движется
     const sp = this.speed;
-    const k = Math.min(1, sp / (CONFIG.creature.maxSpeed * 0.6));
+    const k = Math.min(1, sp / (this.maxSpeed * 0.6));
     const tx = sp > 1 ? (this.vx / sp) * k : 0;
     const ty = sp > 1 ? (this.vy / sp) * k : 0;
     const follow = Math.min(1, dt * 8);
@@ -366,12 +389,12 @@ class Creature {
   draw(ctx, assets, time, isChampion, now) {
     const r = this.radius;
     const appear = this.appear < 1 ? Math.max(0.01, easeOutBack(this.appear)) : 1;
-    assets.drawHalo(ctx, this.x, this.y, r * appear);
+    assets.drawHalo(ctx, this.x, this.y, this.visualRadius * 0.45 * appear);
 
     if (assets.creatureImage) this.drawImageSprite(ctx, assets);
     else this.drawSoot(ctx, assets, now);
 
-    if (isChampion) assets.drawCrown(ctx, this.x, this.y - r * 1.7 - 6, time);
+    if (isChampion) assets.drawCrown(ctx, this.x, this.y - r - this.dna.hairLength * 0.8 - 8, time);
   }
 
   /** Процедурная чернушка: шерсть → ядро → глаза. */
@@ -390,7 +413,7 @@ class Creature {
   /** Режим creature.png: картинка поворачивается по вектору движения (Math.atan2). */
   drawImageSprite(ctx, assets) {
     const r = this.radius;
-    const speedRatio = Math.min(1, this.speed / CONFIG.creature.maxSpeed);
+    const speedRatio = Math.min(1, this.speed / this.maxSpeed);
     let sx = 1, sy = 1, sway = 0;
 
     if (this.isPetted) {
@@ -417,7 +440,7 @@ class Creature {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.drawAngle + sway);
     ctx.scale(sx * appear, sy * appear);
-    assets.drawCreatureImage(ctx, r);
+    assets.drawCreatureImage(ctx, r + this.dna.hairLength * 0.5);
     ctx.restore();
   }
 }

@@ -19,6 +19,7 @@ class World {
     // Рекорды для статистики и эволюции
     this.recordAge = 0;
     this.bestBrain = null;
+    this.bestDNA = null;
     this.bestGeneration = 0;
   }
 
@@ -121,6 +122,7 @@ class World {
     if (creature.age > this.recordAge) {
       this.recordAge = creature.age;
       this.bestBrain = creature.brain.copy();
+      this.bestDNA = creature.dna;
       this.bestGeneration = creature.generation;
     }
   }
@@ -137,6 +139,16 @@ class World {
     let sum = 0;
     for (const c of this.creatures) sum += c.generation;
     return sum / this.creatures.length;
+  }
+
+  /** Средние значения генов по популяции — видно, куда «тянет» эволюция. */
+  averageDNA() {
+    const avg = {};
+    for (const name of Object.keys(DNA_GENES)) avg[name] = 0;
+    if (this.creatures.length === 0) return avg;
+    for (const c of this.creatures) for (const name in avg) avg[name] += c.dna[name];
+    for (const name in avg) avg[name] /= this.creatures.length;
+    return avg;
   }
 
   maxGeneration() {

@@ -24,25 +24,24 @@
  */
 class SootFur {
   /**
-   * @param {SootFur|null} template — если передан, «причёска» копируется
-   *                                  (потомок похож на родителя).
+   * @param {DNA} dna — количество (hairCount) и длина (hairLength, px) волосков берутся из генов.
    */
-  constructor(template = null) {
+  constructor(dna) {
     const cfg = CONFIG.soot;
+    const count = dna.hairCount;
     this.hairs = [];
     this.initialized = false;
 
-    for (let i = 0; i < cfg.hairs; i++) {
-      const src = template ? template.hairs[i] : null;
-      const angle = src ? src.angle : (i / cfg.hairs) * TAU + randRange(-0.1, 0.1);
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * TAU + randRange(-0.1, 0.1);
       const nodes = [];
       for (let k = 0; k < cfg.hairSegments; k++) nodes.push({ x: 0, y: 0, ox: 0, oy: 0 });
       this.hairs.push({
         angle,
         dirX: Math.cos(angle),                // направление «наружу» из центра
         dirY: Math.sin(angle),
-        length: src ? src.length : randRange(cfg.hairLength[0], cfg.hairLength[1]),
-        curl: src ? src.curl : randRange(-0.6, 0.6),        // лёгкий природный изгиб
+        length: dna.hairLength * randRange(0.8, 1.15),       // px, ±15 % — шерсть не «под линейку»
+        curl: randRange(-0.6, 0.6),        // лёгкий природный изгиб
         phase: randRange(0, TAU),                            // у каждого волоска свой «ветерок»
         windPeriod: randRange(700, 1300),                    // мс — скорость колыхания
         rootX: 0, rootY: 0,
@@ -55,7 +54,7 @@ class SootFur {
   reset(body) {
     for (const h of this.hairs) {
       this.computeRoot(h, body);
-      const seg = (body.r * h.length) / h.nodes.length;
+      const seg = h.length / h.nodes.length;
       h.nodes.forEach((n, k) => {
         n.x = n.ox = h.rootX + h.dirX * seg * (k + 1);
         n.y = n.oy = h.rootY + h.dirY * seg * (k + 1);
@@ -101,12 +100,12 @@ class SootFur {
     const damping = Math.pow(cfg.damping, frames);
     // На вдохе шерсть чуть распушается, при поглаживании — заметно (от удовольствия)
     const fluff = 1 + CONFIG.breathing.fluff * body.breath + (body.purring ? cfg.purrFluff : 0);
-    const windAmp = body.r * cfg.windAmplitude;
+    const windAmp = body.hairLength * cfg.windAmplitude;
     const segCount = this.hairs[0].nodes.length;
 
     for (const h of this.hairs) {
       this.computeRoot(h, body);
-      const seg = (body.r * h.length * fluff) / segCount;
+      const seg = (h.length * fluff) / segCount;
       const perpX = -h.dirY, perpY = h.dirX;
 
       // Idle-«ветерок»: две несоразмерные синусоиды → движение не выглядит механическим
@@ -150,7 +149,7 @@ class SootFur {
   draw(ctx, body, now) {
     const cfg = CONFIG.soot;
     const r = body.r;
-    const vibAmp = body.purring ? r * cfg.purrAmplitude : 0;
+    const vibAmp = body.purring ? body.hairLength * cfg.purrAmplitude : 0;
 
     ctx.beginPath();
     for (const h of this.hairs) {
@@ -170,7 +169,7 @@ class SootFur {
       ctx.lineTo(nodes[last].x + px, nodes[last].y + py);
     }
     ctx.strokeStyle = '#060609';
-    ctx.lineWidth = Math.max(1.2, r * cfg.hairWidth);
+    ctx.lineWidth = clamp(r * cfg.hairWidth, 1.2, 3.2);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -184,7 +183,7 @@ class SootFur {
       ctx.lineTo(b.x, b.y);
     }
     ctx.strokeStyle = 'rgba(130, 135, 170, 0.3)';
-    ctx.lineWidth = Math.max(0.6, r * 0.05);
+    ctx.lineWidth = clamp(r * 0.05, 0.6, 1.3);
     ctx.stroke();
   }
 }
