@@ -175,6 +175,7 @@ class Simulation {
       const f = founders[i];
       const p = this.world.safePoint(CONFIG.world.spawnSafeDistance, this.world.poison);
       const c = new Creature(p.x, p.y, f.brain.copy(false), f.generation, f.dna);
+      if (f.scent) c.scent = f.scent.slice(); // «запах» своей линии из первичного бульона
       c.energy = c.maxEnergy * 0.6;
       c.age = randRange(0, CONFIG.evolution.maturityAge); // не все — новорождённые
       this.world.creatures.push(c);
@@ -383,8 +384,7 @@ class Simulation {
       c.y = fromY + (dy * i) / steps;
       if (c.checkContacts(w, this.particles, true)) {
         // Яд! Существо погибло прямо в руках Создателя. Те, кто это видел,
-        // запоминают: рука опасна. «Запас жизни» навсегда уменьшается (см. lifeReserve)
-        this.witness(c.x, c.y, -1, CONFIG.hand.witnessKill, c);
+        // запоминают: рука опасна (см. onDeath). «Запас жизни» навсегда уменьшается
         this.userKills++;
         this.lifeReserve = Math.max(0, this.lifeReserve - 1);
         this.dragged = null;
@@ -436,6 +436,7 @@ class Simulation {
     for (let i = list.length - 1; i >= 0; i--) {
       const c = list[i];
       if (!c.dead) continue;
+      this.world.onDeath(c);
       this.world.recordDeath(c);
       this.particles.emitSoot(c.x, c.y, c.radius);
       list.splice(i, 1);
@@ -543,11 +544,13 @@ class Simulation {
     climate.drawTint(ctx, w, h);
     SootFur.sheen = climate.furSheen(); // иней на кончиках шерсти зимой, тёплый блик летом
 
+    for (const s of this.world.deathSites) this.assets.drawDeathSite(ctx, s);
     for (const f of this.world.food) this.assets.drawFood(ctx, f, time);
     for (const p of this.world.poison) this.assets.drawPoison(ctx, p, time);
 
     this.hive.drawOverlay(ctx, w, h);
     this.drawVision(ctx);
+    this.drawKin(ctx);
 
     const champion = this.world.oldestCreature();
     for (const c of this.world.creatures) {
@@ -592,6 +595,10 @@ class Simulation {
         `<br><span class="tt-head">🗣 Речь</span>` +
         `<br>Говорит: ${UI.wordLabel(c.signal)} · слышит: ${c.speaker ? UI.wordLabel(c.heardSignal) : 'никого'}` +
         `<br>Общительность: ${Math.round(c.sociability * 100)}%` +
+        `<br><span class="tt-head">👪 Родня и память</span>` +
+        `<br>Родни в мире: ${this.world.creatures.filter(o => o !== c && Creature.kinship(c, o) >= CONFIG.kin.relative).length}` +
+        ` · опасных мест помнит: ${c.dangerPlaces.length}` +
+        (c.grief > 0 ? `<br>🖤 грустит: погиб родич` : '') +
         `<br>Доверие к вам: ${UI.trustLabel(c.handTrust, 0, true)} · пугливость ${Math.round(c.skittish * 100)}%` +
         (c.seenHand ? `<br>${c.seenHand === 'food' ? '👋 видит вашу руку и тянется к ней' : '😨 видит вашу руку и убегает'}` : '') +
         `<br><span class="tt-head">🧠 Мозг</span>` +
@@ -602,6 +609,27 @@ class Simulation {
     } else {
       this.ui.hideTooltip();
     }
+  }
+
+  /** Родня существа под курсором — тонкие розовые кольца (родство по «запаху»). */
+  drawKin(ctx) {
+    if (this.ui.hidden) return;
+    const c = this.hovered;
+    if (!c || c.dead) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 190, 225, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([3, 4]);
+    for (const o of this.world.creatures) {
+      if (o === c) continue;
+      const k = Creature.kinship(c, o);
+      if (k < CONFIG.kin.relative) continue;
+      ctx.globalAlpha = 0.4 + 0.6 * k;
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, o.visualRadius * 0.85, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /**

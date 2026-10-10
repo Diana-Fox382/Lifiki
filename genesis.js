@@ -81,7 +81,7 @@ class Genesis {
         });
         if (stableFor >= g.stableTime || t >= g.maxSimMinutes * 60) {
           // Выходят в мир живые на конец эпохи (если вдруг никого — лучшие по рекорду)
-          let founders = world.creatures.map(c => ({ brain: c.brain.copy(false), dna: c.dna, generation: c.generation }));
+          let founders = world.creatures.map(c => ({ brain: c.brain.copy(false), dna: c.dna, generation: c.generation, scent: c.scent.slice() }));
           if (founders.length === 0 && world.bestBrain) {
             founders = [{ brain: world.bestBrain.copy(false), dna: world.bestDNA, generation: world.bestGeneration }];
           }

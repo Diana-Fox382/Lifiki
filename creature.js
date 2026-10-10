@@ -76,6 +76,13 @@ class Creature {
     this.sickTimer = 0;         // > 0 — болеет (тронул яд, будучи под защитой)
     // Доверие к руке Создателя (−1…1): выучено из своего опыта и увиденного
     this.handTrust = 0;
+    // «Запах» — метка родства (3 числа). Детёныш наследует её почти без изменений,
+    // поэтому у близкой родни запахи почти одинаковые (см. Creature.kinship)
+    this.scent = [Math.random(), Math.random(), Math.random()];
+    this.dangerPlaces = [];     // опасные места, которые помнит: [{x, y, strength}]
+    this.seenSites = new Set(); // какие пятна гибели уже видел (чтобы не учиться дважды)
+    this.siteTimer = Math.random() * 0.5;
+    this.grief = 0;             // > 0 — грустит: видел гибель родича
     // Линька: какая доля «зимней шубы» из ДНК сейчас на существе (1 — зимняя, 0.5 — летняя)
     this.coat = null;           // выставится по погоде в первом update()
     this.coatTraits = { fur: 0 };
@@ -158,6 +165,13 @@ class Creature {
     this.updateAnimations(dt);
     if (this.sickTimer > 0) this.sickTimer -= dt;
     if (this.frightFlash > 0) this.frightFlash -= dt;
+    if (this.grief > 0) this.grief -= dt;
+    // Память об опасных местах понемногу тает
+    if (this.dangerPlaces.length > 0) {
+      const k = Math.pow(0.5, dt / CONFIG.deathSites.halfLife);
+      for (const d of this.dangerPlaces) d.strength *= k;
+      this.dangerPlaces = this.dangerPlaces.filter(d => d.strength > 0.05);
+    }
     if (this.handTrust !== 0) this.handTrust *= Math.pow(0.5, dt / CONFIG.hand.halfLife); // время лечит
 
     if (this.isPetted) this.updatePetting(dt, particles);
@@ -307,6 +321,14 @@ class Creature {
     this.vx = Math.cos(this.angle) * speed;
     this.vy = Math.sin(this.angle) * speed;
 
+    // МЕСТА ГИБЕЛИ: увидел пятно сажи там, где рука убила кого-то (или где погиб
+    // родич), — запоминает место как опасное. Смотрим раз в полсекунды (экономим).
+    this.siteTimer -= dt;
+    if (this.siteTimer <= 0 && world.deathSites.length > 0) {
+      this.siteTimer = 0.5;
+      this.lookAtDeathSites(world, vision, halfFov);
+    }
+
     // Рефлекс бегства от руки, которой боится: тем сильнее, чем ближе рука,
     // чем сильнее страх и чем пугливее характер. Бегство тратит силы (см. трату ниже).
     let flee = 0;
@@ -316,6 +338,22 @@ class Creature {
       const push = CONFIG.hand.fleeAccel * flee * dt;
       this.vx -= (hs.dx / d) * push;
       this.vy -= (hs.dy / d) * push;
+      const v = Math.hypot(this.vx, this.vy);
+      if (v > t.maxSpeed) { this.vx *= t.maxSpeed / v; this.vy *= t.maxSpeed / v; }
+      if (v > 1) this.angle = Math.atan2(this.vy, this.vx);
+    }
+    // Тот же рефлекс уводит от опасных мест, которые существо помнит
+    // (выучено, ГДЕ опасно; само бегство — врождённое, сила — пугливость)
+    for (const place of this.dangerPlaces) {
+      const d = world.delta(this.x, this.y, place.x, place.y);
+      const dist = Math.hypot(d.x, d.y) || 1;
+      const R = CONFIG.deathSites.radius + this.radius;
+      if (dist >= R) continue;
+      const k = this.skittish * Math.min(1, place.strength) * (1 - dist / R);
+      flee += k;
+      const push = CONFIG.hand.fleeAccel * k * dt;
+      this.vx -= (d.x / dist) * push;
+      this.vy -= (d.y / dist) * push;
       const v = Math.hypot(this.vx, this.vy);
       if (v > t.maxSpeed) { this.vx *= t.maxSpeed / v; this.vy *= t.maxSpeed / v; }
       if (v > 1) this.angle = Math.atan2(this.vy, this.vx);
@@ -471,6 +509,53 @@ class Creature {
   }
 
   /**
+   * Родство двух существ по «запаху»: 1 — запах совпадает (мать и дитя),
+   * 0 — чужие. Настоящей родословной они не знают — только похожесть запаха.
+   */
+  static kinship(a, b) {
+    const s1 = a.scent, s2 = b.scent;
+    const d = Math.hypot(s1[0] - s2[0], s1[1] - s2[1], s1[2] - s2[2]);
+    return clamp(1 - d / CONFIG.kin.scentRange, 0, 1);
+  }
+
+  /** Запомнить опасное место (близкие места сливаются, помним самые сильные). */
+  rememberDanger(x, y, strength) {
+    if (strength <= 0) return;
+    const cfg = CONFIG.deathSites;
+    for (const d of this.dangerPlaces) {
+      if (Math.hypot(d.x - x, d.y - y) < cfg.radius * 0.5) {
+        d.strength = Math.min(1.5, Math.max(d.strength, strength) + strength * 0.3);
+        return;
+      }
+    }
+    this.dangerPlaces.push({ x, y, strength });
+    this.dangerPlaces.sort((a, b) => b.strength - a.strength);
+    if (this.dangerPlaces.length > cfg.memory) this.dangerPlaces.length = cfg.memory;
+  }
+
+  /** Существо своими глазами (радиус и конус обзора) находит пятна сажи — места гибели. */
+  lookAtDeathSites(world, vision, halfFov) {
+    const cfg = CONFIG.deathSites;
+    if (this.seenSites.size > 60) { // забываем пятна, которых уже нет
+      const alive = new Set(world.deathSites.map(s => s.id));
+      for (const id of this.seenSites) if (!alive.has(id)) this.seenSites.delete(id);
+    }
+    for (const site of world.deathSites) {
+      if (this.seenSites.has(site.id)) continue;
+      const d = world.delta(this.x, this.y, site.x, site.y);
+      const dist = Math.hypot(d.x, d.y);
+      if (dist > vision) continue;
+      if (halfFov < Math.PI - 1e-6 && Math.cos(Math.atan2(d.y, d.x) - this.angle) < Math.cos(halfFov)) continue;
+      this.seenSites.add(site.id);
+      const k = Creature.kinship(this, site);
+      // Чужая смерть от голода ничего не говорит об опасности; гибель от руки
+      // или смерть родича — говорит (и пугает тем сильнее, чем ближе родство)
+      this.rememberDanger(site.x, site.y, (cfg.danger[site.cause] || 0) * cfg.foundShare * (0.5 + k));
+      if (k >= CONFIG.kin.relative && site.age < 30) this.grief = Math.max(this.grief, CONFIG.kin.griefTime * 0.5);
+    }
+  }
+
+  /**
    * Выучить отношение к руке (правило Рескорлы — Вагнера: чем неожиданнее
    * событие, тем сильнее урок). target: +1 — рука добрая, −1 — опасная.
    * strength: насколько впечатляющее событие. Ген обучаемости ускоряет выучивание.
@@ -552,6 +637,8 @@ class Creature {
     // страха или доверия родителя (так и звери учатся бояться у матери)
     child.handTrust = this.handTrust * CONFIG.hand.culture;
     child.skittish = clamp(this.skittish + gaussianRandom() * 0.08, 0, 1);
+    // «Запах» — почти родительский: так родня и узнаёт друг друга
+    child.scent = this.scent.map(v => clamp(v + gaussianRandom() * CONFIG.kin.scentMutation, 0, 1));
 
     // Сильное вытягивание при делении
     this.stretch = 1;
@@ -679,6 +766,18 @@ class Creature {
 
     const top = this.y - r - this.hairLength * 0.8;
     if (isChampion) assets.drawStar(ctx, this.x, top - 12, time);
+
+    // Траур: видел гибель родича — по щеке медленно катится слезинка
+    if (this.grief > 0) {
+      const k = (now % 1600) / 1600;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, this.grief) * Math.sin(k * Math.PI) * 0.85;
+      ctx.fillStyle = '#9fd3ff';
+      ctx.beginPath();
+      ctx.arc(this.x + r * 0.35, this.y + r * (0.05 + k * 0.45), Math.max(1.5, r * 0.09), 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Испуг: первые мгновения тревоги над головой мелькает «!»
     if (this.frightFlash > 0) {

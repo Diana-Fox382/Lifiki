@@ -11,6 +11,8 @@ class World {
     this.height = height;
     this.food = [];       // [{x, y, phase}]
     this.poison = [];     // [{x, y, phase}]
+    this.deathSites = []; // места гибели: [{id, x, y, cause, scent, age}] — тающие пятна сажи
+    this.nextSiteId = 1;
     this.hand = null;     // {x, y} — рука Создателя (курсор / палец), если она сейчас в мире
     this.creatures = [];  // [Creature]
 
@@ -97,6 +99,11 @@ class World {
   /** Еда растёт постепенно (с постоянной скоростью), яд — восстанавливается. */
   update(dt) {
     this.climate.update(dt);
+    // Пятна сажи на местах гибели медленно тают
+    if (this.deathSites.length > 0) {
+      for (const s of this.deathSites) s.age += dt;
+      this.deathSites = this.deathSites.filter(s => s.age < CONFIG.deathSites.lifetime);
+    }
     this.foodAccumulator += CONFIG.world.foodRegenPerMegapixel * this.megapixels * dt;
     while (this.foodAccumulator >= 1) {
       this.foodAccumulator -= 1;
@@ -106,6 +113,36 @@ class World {
     while (this.poisonAccumulator >= 1) {
       this.poisonAccumulator -= 1;
       if (this.poison.length < this.maxPoison) this.spawnPoison();
+    }
+  }
+
+  /** Запомнить место гибели (пятно сажи). */
+  addDeathSite(creature) {
+    const site = { id: this.nextSiteId++, x: creature.x, y: creature.y, cause: creature.deathCause, scent: creature.scent, age: 0 };
+    this.deathSites.push(site);
+    if (this.deathSites.length > CONFIG.deathSites.maxSites) this.deathSites.shift();
+    return site;
+  }
+
+  /**
+   * Чья-то гибель: на земле остаётся пятно сажи, а свидетели (в пределах своего
+   * радиуса зрения — суматоху замечают и краем глаза) делают выводы:
+   *   • погиб от руки — рука опасна (тем сильнее, чем ближе родство с погибшим);
+   *   • место запоминается как опасное (рука — сильно, яд — слабее, голод — нет);
+   *   • погиб близкий родич — несколько секунд траура.
+   */
+  onDeath(c) {
+    const site = this.addDeathSite(c);
+    const ds = CONFIG.deathSites, kin = CONFIG.kin;
+    for (const o of this.creatures) {
+      if (o === c || o.dead) continue;
+      const d = this.delta(c.x, c.y, o.x, o.y);
+      if (Math.hypot(d.x, d.y) > o.dna.visionRadius) continue;
+      const k = Creature.kinship(o, c);
+      o.seenSites.add(site.id);
+      if (c.deathCause === 'hand') o.learnHand(-1, CONFIG.hand.witnessKill * (0.6 + 0.8 * k));
+      o.rememberDanger(c.x, c.y, (ds.danger[c.deathCause] || 0) * (0.5 + k));
+      if (k >= kin.relative) o.grief = kin.griefTime;
     }
   }
 

@@ -306,6 +306,7 @@ class AssetManager {
 
     let open = 1 - creature.blink;
     if (creature.energyRatio < 0.25) open *= 0.55; // голодный — сонный
+    if (creature.grief > 0) open *= 0.6;           // грустит — глаза полуприкрыты
     open = Math.max(0.08, open);
 
     const shift = CONFIG.soot.pupilShift;
@@ -334,6 +335,21 @@ class AssetManager {
         ctx.fill();
       }
     }
+  }
+
+  /** Место гибели: мягкое тающее пятно сажи на земле. */
+  drawDeathSite(ctx, site) {
+    const life = 1 - site.age / CONFIG.deathSites.lifetime;
+    if (life <= 0) return;
+    const a = 0.32 * life;
+    const g = ctx.createRadialGradient(site.x, site.y, 0, site.x, site.y, 26);
+    g.addColorStop(0, `rgba(8, 8, 14, ${a})`);
+    g.addColorStop(0.6, `rgba(8, 8, 14, ${a * 0.5})`);
+    g.addColorStop(1, 'rgba(8, 8, 14, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(site.x, site.y, 26, 0, TAU);
+    ctx.fill();
   }
 
   /**
