@@ -1,0 +1,762 @@
+/*
+ * style.css — оформление интерфейса.
+ * Главная фишка — Glassmorphism: полупрозрачный фон + размытие того,
+ * что под панелью (backdrop-filter: blur).
+ */
+
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --text: #eef1ff;
+  --text-dim: rgba(238, 241, 255, 0.65);
+  --accent: #ff7fb0;
+  --accent-2: #8fd3ff;
+  --food: #7dffb0;
+  --poison: #ff4d6d;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f1426;
+  color: var(--text);
+  font-family: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Холст на весь экран */
+#world {
+  position: fixed;
+  inset: 0;
+  display: block;
+  touch-action: none; /* чтобы на телефоне можно было гладить пальцем без прокрутки */
+}
+
+/* ---------- Стекло ---------- */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* ---------- Панель статистики ---------- */
+.panel {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  width: 270px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 18px;
+  z-index: 10;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+/* Живой логотип-чернушка (рисуется в canvas, см. logo.js) */
+.logo {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  cursor: grab;
+  filter: drop-shadow(0 0 8px rgba(190, 210, 255, 0.35));
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: linear-gradient(90deg, #ffffff, var(--accent-2), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.stat-label {
+  color: var(--text-dim);
+}
+
+.stat-label small,
+.stat-value small {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.stat-value {
+  font-weight: 800;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stat-sub {
+  font-size: 12px;
+}
+
+.stat-sub .stat-value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.dot-food { background: var(--food); box-shadow: 0 0 8px var(--food); }
+.dot-poison { background: var(--poison); box-shadow: 0 0 8px var(--poison); }
+
+/* ---------- Средняя ДНК ---------- */
+.dna {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dna-head {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.dna-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dna-grid b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.tt-head {
+  display: inline-block;
+  margin-top: 4px;
+  font-weight: 800;
+  color: var(--accent-2);
+}
+
+/* ---------- Осознанность ---------- */
+.awareness {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.awareness-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.awareness-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.awareness-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 12px rgba(255, 127, 176, 0.6);
+  transition: width 0.4s ease;
+}
+
+.awareness-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+/* ---------- Кнопки ---------- */
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s, box-shadow 0.2s;
+}
+
+.btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 16px rgba(143, 211, 255, 0.25);
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn.active {
+  background: rgba(255, 127, 176, 0.35);
+  border-color: rgba(255, 127, 176, 0.6);
+}
+
+.btn-wide {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* ---------- Настройки мира ---------- */
+.settings {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.settings summary::-webkit-details-marker { display: none; }
+.settings summary::after { content: ' ▸'; color: var(--text-dim); }
+.settings[open] summary::after { content: ' ▾'; }
+
+.setting {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.setting span {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-dim);
+}
+
+.setting b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.setting small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  opacity: 0.8;
+  line-height: 1.3;
+}
+
+.setting input[type='range'] {
+  width: 100%;
+  margin: 4px 0 2px;
+  accent-color: var(--accent);
+}
+
+.btn-small {
+  margin-top: 10px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* ---------- Сезон ---------- */
+.right-column {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 230px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 10;
+}
+
+.season {
+  padding: 14px 16px;
+  transition: background 2s, border-color 2s;
+}
+
+.season.is-cold {
+  background: rgba(150, 200, 255, 0.12);
+  border-color: rgba(190, 225, 255, 0.35);
+}
+
+.season.is-hot {
+  background: rgba(255, 150, 90, 0.12);
+  border-color: rgba(255, 180, 120, 0.35);
+}
+
+.season-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.season-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.season-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.season-temp {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.season-track {
+  position: relative;
+  display: flex;
+  height: 8px;
+  margin: 12px 0 8px;
+  border-radius: 999px;
+  overflow: visible;
+}
+
+.seg { flex: 1; height: 100%; opacity: 0.75; }
+.seg-spring { background: #9be7a5; border-radius: 999px 0 0 999px; }
+.seg-summer { background: #ffb36b; }
+.seg-autumn { background: #d9a066; }
+.seg-winter { background: #8fc8ff; border-radius: 0 999px 999px 0; }
+
+.season-marker {
+  position: absolute;
+  top: -4px;
+  width: 4px;
+  height: 16px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+}
+
+.season-next,
+.season-effect,
+.season-fur {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.season-effect { color: var(--text); font-weight: 600; }
+.season-fur b { color: var(--text); }
+
+/* ---------- Словарь (язык существ) ---------- */
+.lexicon {
+  padding: 12px 16px;
+  font-size: 12px;
+}
+
+.lexicon-head {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.lex-row {
+  display: grid;
+  grid-template-columns: 18px 1fr 34px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.lex-glyph {
+  font-size: 15px;
+  text-align: center;
+  line-height: 1;
+}
+
+.lex-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.lex-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.lex-share {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.lex-meaning {
+  grid-column: 2 / 4;
+  margin-top: -2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.lex-meaning b { color: var(--text); }
+
+.lexicon-foot {
+  margin-top: 8px;
+  color: var(--text-dim);
+}
+
+.lexicon-hint {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+/* ---------- Режим «чистые обои» ---------- */
+.panel,
+.right-column,
+.hint,
+.banner,
+.tooltip,
+.pause-badge {
+  transition: opacity 0.4s ease, visibility 0.4s;
+}
+
+body.ui-hidden .panel,
+body.ui-hidden .right-column,
+body.ui-hidden .hint,
+body.ui-hidden .banner,
+body.ui-hidden .tooltip,
+body.ui-hidden .pause-badge {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ui-toggle {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text);
+  opacity: 0.45;
+  cursor: pointer;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.25s, background 0.25s;
+}
+
+.ui-toggle:hover,
+.ui-toggle:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+body.ui-hidden .ui-toggle { opacity: 0.25; }
+body.ui-hidden .ui-toggle:hover { opacity: 0.9; }
+
+.ui-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ui-toggle .icon-eye-off { display: none; }
+body.ui-hidden .ui-toggle .icon-eye { display: none; }
+body.ui-hidden .ui-toggle .icon-eye-off { display: block; }
+
+/* ---------- Индикатор зума ---------- */
+.zoom-pill {
+  position: fixed;
+  right: 56px;
+  bottom: 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 40;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s, visibility 0.3s;
+}
+
+.zoom-pill.visible { opacity: 0.75; visibility: visible; }
+.zoom-pill.visible:hover { opacity: 1; }
+body.ui-hidden .zoom-pill { opacity: 0; visibility: hidden; }
+
+/* ---------- Мир опустел ---------- */
+.extinct {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(320px, calc(100% - 32px));
+  transform: translate(-50%, -50%) scale(0.9);
+  padding: 24px;
+  text-align: center;
+  z-index: 50;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.8s, transform 0.8s, visibility 0.8s;
+}
+
+.extinct.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.extinct-icon { font-size: 34px; }
+.extinct-title { margin-top: 6px; font-size: 22px; font-weight: 800; }
+.extinct-text { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+.touch-only { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .touch-only { display: inline; }
+  .desktop-only { display: none; }
+}
+
+/* ---------- Подсказка ---------- */
+.hint {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+}
+
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- Баннер «Сеанса связи» ---------- */
+.banner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translate(-50%, -150%);
+  padding: 12px 24px;
+  font-size: 17px;
+  font-weight: 800;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s;
+  background: linear-gradient(90deg, rgba(143, 211, 255, 0.18), rgba(255, 127, 176, 0.22));
+  white-space: nowrap;
+}
+
+.banner-title {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.banner-sub {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.banner.visible {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
+/* ---------- Всплывающая карточка существа ---------- */
+.tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 30;
+}
+
+.tooltip.visible {
+  opacity: 1;
+}
+
+/* ---------- Значок паузы ---------- */
+.pause-badge {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.8);
+  padding: 16px 32px;
+  font-size: 26px;
+  font-weight: 800;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 15;
+}
+
+.pause-badge.visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* ---------- Мобильные экраны ---------- */
+@media (max-width: 600px) {
+  .panel {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    padding: 12px;
+  }
+  .right-column {
+    top: auto;
+    bottom: 56px;
+    right: 8px;
+    width: 170px;
+  }
+  .season {
+    padding: 10px 12px;
+  }
+  .season-next,
+  .season-fur {
+    display: none;
+  }
+  .lexicon {
+    display: none;
+  }
+  .awareness-hint,
+  .dna,
+  .settings,
+  .stat-sub {
+    display: none;
+  }
+  .hint {
+    font-size: 11px;
+    white-space: normal;
+    left: 8px;
+    transform: none;
+    width: calc(100% - 64px); /* справа место для кнопки 👁 */
+    text-align: center;
+    bottom: 8px;
+  }
+  .ui-toggle {
+    right: 10px;
+    bottom: 12px;
+  }
+  .zoom-pill {
+    right: 8px;
+    bottom: 54px;
+  }
+  /* Звёздочка висит над старейшим из живых — эта строка нужна и на телефоне */
+  .stat-sub.stat-alive {
+    display: flex;
+  }
+  /* Клавиатурные подсказки на сенсорном экране не нужны */
+  .desktop-only {
+    display: none;
+  }
+  .banner {
+    font-size: 14px;
+    white-space: normal;
+    width: calc(100% - 16px);
+    text-align: center;
+  }
+}
+
+/* Зарождение жизни — карточка не мешает кликам */
+.genesis { pointer-events: none; }
+.genesis .extinct-text { font-variant-numeric: tabular-nums; }
